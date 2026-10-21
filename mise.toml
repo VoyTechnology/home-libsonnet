@@ -1,0 +1,7 @@
+[tools]
+go-jsonnet = "0.20.0"
+jsonnet-bundler = "latest"
+
+[tasks.test]
+description = "Render-test every library"
+run = "make test"
