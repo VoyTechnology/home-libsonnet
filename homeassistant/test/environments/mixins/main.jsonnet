@@ -1,4 +1,4 @@
-local main = import 'main.libsonnet';
+local main = import '../../../main.libsonnet';
 local ha = main
              + { _config+:: {
                nodeName: 'node1',
@@ -8,7 +8,7 @@ local ha = main
                  lovelace: { mode: 'storage', dashboards: { 'my-board': { mode: 'storage', title: 'Mine' } } },
                },
              } }
-             + main.addMixins({ example: import '../example/mixin.libsonnet' })
+             + main.addMixins({ example: import '../../../example/mixin.libsonnet' })
              + main.addAutomation('direct', { alias: 'x' });
 
 local cms = ha.haMixinConfigMaps;

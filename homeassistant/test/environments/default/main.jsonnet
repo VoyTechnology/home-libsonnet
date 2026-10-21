@@ -1,5 +1,5 @@
 // Renders with the default config.
-local ha = import 'main.libsonnet';
+local ha = import '../../../main.libsonnet';
 
 local kinds = std.set([ha[f].kind for f in std.objectFields(ha) if std.isObject(ha[f]) && std.objectHas(ha[f], 'kind')]);
 

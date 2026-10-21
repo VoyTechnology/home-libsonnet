@@ -51,3 +51,9 @@ lovelace:
 ```
 
 ConfigMaps are limited to 1MiB each, and HA must be reloaded to pick up changes.
+
+## Tests
+
+`make test` runs `rustanka show` (set `RTK=tk` to use Tanka) over each Tanka environment in
+[test/environments](test/environments): default config, a full mixin set with a managed
+`configuration`, and the opt-in ServiceMonitor. Assertions live in each `main.jsonnet`.

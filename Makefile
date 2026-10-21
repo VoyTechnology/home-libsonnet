@@ -1,5 +1,5 @@
-# Each top-level directory with a test/ folder is a self-contained library.
-LIBS := $(patsubst %/test,%,$(wildcard */test))
+# Each top-level directory with test/environments is a self-contained library.
+LIBS := $(patsubst %/test/environments,%,$(wildcard */test/environments))
 
 .PHONY: test fmt $(LIBS)
 test: $(LIBS)
