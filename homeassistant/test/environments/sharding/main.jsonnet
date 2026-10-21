@@ -10,7 +10,7 @@ local names = ['auto_%02d' % i for i in std.range(0, 29)];
 
 local ha = main
            + { _config+:: { mixinShardBytes: limit } }
-           + main.addMixins({ big: { homeassistantAutomations+:: { [n]: automation(i) for i in std.range(0, 29) for n in [names[i]] } } });
+           + main.addMixins({ homeassistantAutomations+:: { [n]: automation(i) for i in std.range(0, 29) for n in [names[i]] } });
 
 local cms = ha.haMixinConfigMaps;
 local size(cm) = std.foldl(function(a, k) a + std.length(std.encodeUTF8(k)) + std.length(std.encodeUTF8(cm.data[k])), std.objectFields(cm.data), 0);

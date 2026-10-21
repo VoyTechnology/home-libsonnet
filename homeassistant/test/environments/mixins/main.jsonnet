@@ -8,7 +8,7 @@ local ha = main
                  lovelace: { mode: 'storage', dashboards: { 'my-board': { mode: 'storage', title: 'Mine' } } },
                },
              } }
-             + main.addMixins({ example: import '../../../example/mixin.libsonnet' })
+             + main.addMixins(import '../../../example/mixin.libsonnet')
              + main.addAutomation('direct', { alias: 'x' });
 
 // Everything fits in one shard, mounted through a single projected volume.

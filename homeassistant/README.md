@@ -15,7 +15,7 @@ homeassistant {
     },
   },
 }
-+ homeassistant.addMixins({ energy: import 'energy-mixin/mixin.libsonnet' })
++ homeassistant.addMixins(import 'energy-mixin/mixin.libsonnet')
 + homeassistant.addAutomation('porch', { alias: 'Porch', triggers: [], actions: [] })
 ```
 
