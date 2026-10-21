@@ -9,7 +9,7 @@
 // retention policy below stops Kubernetes deleting it with the StatefulSet.
 {
   local this = self,
-  local cfg = $._config.homeassistant,
+  local cfg = $._config,
   local name = 'homeassistant',
   // Do not change: the StatefulSet selector is immutable and the Service and
   // ServiceMonitor select on it.
@@ -40,36 +40,10 @@
     },
   },
 
-  haIngress: {
-    apiVersion: 'networking.k8s.io/v1',
-    kind: 'Ingress',
-    metadata: {
-      name: name,
-      labels: labels,
-      annotations: {
-        'cert-manager.io/cluster-issuer': 'letsencrypt',
-        // Do not create the DNS entry as its being managed by the tunnel.
-        'dns.kubernetes.io/exclude': 'true',
-      },
-    },
-    spec: {
-      ingressClassName: cfg.ingressClass,
-      tls: [{ hosts: [$._config.domain], secretName: 'homeassistant-tls' }],
-      rules: [{
-        host: $._config.domain,
-        http: { paths: [{
-          path: '/',
-          pathType: 'ImplementationSpecific',
-          backend: { service: { name: name, port: { number: cfg.port } } },
-        }] },
-      }],
-    },
-  },
-
-  // Exposes the built-in Prometheus integration (`prometheus:` in configuration.yaml)
-  // at /api/prometheus. HA's API requires auth on every request, so the endpoint uses
-  // the bearer token of `metricsTokenSecret`.
-  haServiceMonitor: {
+  // Scrapes Home Assistant's Prometheus integration (`prometheus:` in configuration.yaml)
+  // at /api/prometheus. HA requires auth on every request, so set `metricsTokenSecret`
+  // to a { name, key } secret holding a long-lived access token.
+  haServiceMonitor: if !cfg.metricsEnabled then {} else {
     apiVersion: 'monitoring.coreos.com/v1',
     kind: 'ServiceMonitor',
     metadata: { name: name, labels: labels },
@@ -78,9 +52,7 @@
         port: 'http',
         path: '/api/prometheus',
         interval: cfg.metricsInterval,
-        bearerTokenSecret: cfg.metricsTokenSecret,
-      }],
-      namespaceSelector: { matchNames: ['homeassistant'] },
+      } + (if cfg.metricsTokenSecret != null then { bearerTokenSecret: cfg.metricsTokenSecret } else {})],
       selector: { matchLabels: selector },
     },
   },
@@ -109,7 +81,7 @@
     volumeMounts:
       [{ name: name, mountPath: '/config' }]
       + [{ name: d, mountPath: devices[d] } for d in std.objectFields(devices)]
-      + this.haMixinMounts,
+      + this.haProvisioningMounts,
   },
 
   haStatefulSet: {
@@ -126,14 +98,17 @@
       template: {
         metadata: {
           labels: labels,
-        },
+        } + (if cfg.configuration != null then {
+          // The configuration.yaml mount is a subPath, which never updates in place.
+          annotations: { 'checksum/configuration': std.md5(this.haConfiguration) },
+        } else {}),
         spec: {
           hostNetwork: true,
           serviceAccountName: name,
           containers: [this.haContainer],
           volumes:
             [{ name: d, hostPath: { path: devices[d] } } for d in std.objectFields(devices)]
-            + this.haMixinVolumes,
+            + this.haProvisioningVolumes,
         } + (if $._config.nodeName != null then {
           nodeSelector: { 'kubernetes.io/hostname': $._config.nodeName },
         } else {}),
