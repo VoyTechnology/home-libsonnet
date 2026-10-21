@@ -20,6 +20,9 @@
 
     // Where the mixin ConfigMaps are mounted (one subdirectory per kind).
     mixinPath: '/config/mixins',
+    // Max bytes of data per ConfigMap when sharding mixins. Kubernetes caps a ConfigMap
+    // at 1MiB; the default leaves headroom for metadata.
+    mixinShardBytes: 900 * 1024,
 
     // ServiceMonitor for /api/prometheus. Needs the Prometheus Operator CRDs, and
     // `metricsTokenSecret` ({ name, key }) if the API requires a token.

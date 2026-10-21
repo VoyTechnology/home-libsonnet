@@ -1,6 +1,10 @@
 // Renders the mixin resources (mixins.libsonnet) as ConfigMaps and mounts them under
-// `_config.homeassistant.mixinPath/<kind>` in the Home Assistant pod, so they are
-// provisioned by Kubernetes rather than synced into /config.
+// `_config.mixinPath/<kind>` in the Home Assistant pod, so they are provisioned by
+// Kubernetes rather than synced into /config.
+//
+// Files of all kinds are bin-packed (first-fit decreasing) into as few ConfigMaps as
+// fit under `_config.mixinShardBytes`, and a single projected volume stitches the
+// shards back into one directory tree.
 //
 // With `_config.configuration` set, the include sections are injected into the
 // rendered configuration.yaml. Otherwise add them by hand:
@@ -11,7 +15,7 @@
 //   lovelace:
 //     dashboards: !include mixins/dashboards/registry.yaml
 //
-// ConfigMap contents update in place; reload the domain (or restart HA) to apply.
+// Contents update in place; reload the domain (or restart HA) to apply.
 local yaml(v) = std.manifestYamlDoc(v, quote_keys=false);
 local asList(v) = if std.isArray(v) then v else [v];
 
@@ -21,6 +25,8 @@ local dashboardID(name) =
   assert std.length(std.findSubstr('-', id)) > 0 :
          'dashboard "%s" needs a hyphen or underscore in its name (HA url_path rule)' % name;
   id;
+
+local byteSize(s) = std.length(std.encodeUTF8(s));
 
 local configMap(name, data) = {
   apiVersion: 'v1',
@@ -63,11 +69,6 @@ local configMap(name, data) = {
   },
   local kindsInUse = [k for k in std.objectFields(files) if std.length(files[k]) > 0],
 
-  haMixinConfigMaps: {
-    [k]: configMap('ha-mixin-' + k, files[k])
-    for k in kindsInUse
-  },
-
   local inUse(k) = std.member(kindsInUse, k),
   local path(k) = '%s/%s' % [$._config.mixinPath, k],
 
@@ -106,20 +107,56 @@ local configMap(name, data) = {
         yaml(full)
       ),
 
-  haConfigMap: if $._config.configuration == null then {} else
-    configMap('ha-configuration', { 'configuration.yaml': $.haConfiguration }),
+  // Everything to provision: ConfigMap key, path inside the volume and content.
+  local entries =
+    [
+      { key: '%s.%s' % [k, f], path: '%s/%s' % [k, f], content: files[k][f] }
+      for k in kindsInUse
+      for f in std.objectFields(files[k])
+    ]
+    + (if $._config.configuration == null then [] else [
+      { key: 'configuration.yaml', path: 'configuration.yaml', content: $.haConfiguration },
+    ]),
+
+  // First-fit decreasing: biggest files first, each into the first shard with room.
+  local limit = $._config.mixinShardBytes,
+  local sized = [
+    e + { size: byteSize(e.key) + byteSize(e.content) }
+    for e in entries
+  ],
+  local shards = std.foldl(
+    function(shards, e)
+      assert e.size <= limit :
+             '%s is %d bytes, over the %d byte ConfigMap limit (_config.mixinShardBytes)' % [e.key, e.size, limit];
+      local fits = [i for i in std.range(0, std.length(shards) - 1) if shards[i].size + e.size <= limit];
+      if std.length(fits) == 0 then shards + [{ size: e.size, entries: [e] }]
+      else
+        [
+          if i == fits[0] then { size: shards[i].size + e.size, entries: shards[i].entries + [e] } else shards[i]
+          for i in std.range(0, std.length(shards) - 1)
+        ],
+    std.sort(sized, function(e) [-e.size, e.key]),
+    []
+  ),
+  local shardName(i) = 'ha-mixins-%d' % i,
+
+  // ConfigMaps holding the mixins (and configuration.yaml), as few as fit.
+  haMixinConfigMaps: {
+    [shardName(i)]: configMap(shardName(i), { [e.key]: e.content for e in shards[i].entries })
+    for i in std.range(0, std.length(shards) - 1)
+  },
 
   // Consumed by the StatefulSet in homeassistant.libsonnet.
-  haProvisioningVolumes:: [
-    { name: 'mixin-' + k, configMap: { name: 'ha-mixin-' + k } }
-    for k in kindsInUse
+  haProvisioningVolumes:: if std.length(shards) == 0 then [] else [{
+    name: 'mixins',
+    projected: { sources: [
+      { configMap: { name: shardName(i), items: [{ key: e.key, path: e.path } for e in shards[i].entries] } }
+      for i in std.range(0, std.length(shards) - 1)
+    ] },
+  }],
+  haProvisioningMounts:: if std.length(shards) == 0 then [] else [
+    { name: 'mixins', mountPath: $._config.mixinPath, readOnly: true },
   ] + (if $._config.configuration == null then [] else [
-    { name: 'configuration', configMap: { name: 'ha-configuration' } },
-  ]),
-  haProvisioningMounts:: [
-    { name: 'mixin-' + k, mountPath: path(k), readOnly: true }
-    for k in kindsInUse
-  ] + (if $._config.configuration == null then [] else [
-    { name: 'configuration', mountPath: '/config/configuration.yaml', subPath: 'configuration.yaml', readOnly: true },
+    { name: 'mixins', mountPath: '/config/configuration.yaml', subPath: 'configuration.yaml', readOnly: true },
   ]),
 }

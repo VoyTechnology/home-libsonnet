@@ -11,20 +11,29 @@ local ha = main
              + main.addMixins({ example: import '../../../example/mixin.libsonnet' })
              + main.addAutomation('direct', { alias: 'x' });
 
+// Everything fits in one shard, mounted through a single projected volume.
 local cms = ha.haMixinConfigMaps;
-assert std.objectFields(cms) == ['automations', 'dashboards', 'scenes', 'scripts'];
-assert std.objectFields(cms.automations.data) == ['direct.yaml', 'porch_light.yaml'];
-assert std.objectFields(cms.dashboards.data) == ['energy-overview.yaml', 'registry.yaml'];
-assert std.length(ha.haStatefulSet.spec.template.spec.volumes) == 5;
-assert std.length(ha.haContainer.volumeMounts) == 6;
+local data = cms['ha-mixins-0'].data;
+assert std.objectFields(cms) == ['ha-mixins-0'] : std.objectFields(cms);
+assert std.objectFields(data) == [
+  'automations.direct.yaml',
+  'automations.porch_light.yaml',
+  'configuration.yaml',
+  'dashboards.energy-overview.yaml',
+  'dashboards.registry.yaml',
+  'scenes.movie.yaml',
+  'scripts.goodnight.yaml',
+] : std.objectFields(data);
+assert std.length(ha.haStatefulSet.spec.template.spec.volumes) == 1;
+assert std.length(ha.haContainer.volumeMounts) == 3;
 assert ha.haStatefulSet.spec.template.spec.nodeSelector['kubernetes.io/hostname'] == 'node1';
 assert std.objectHas(ha.haStatefulSet.spec.template.metadata.annotations, 'checksum/configuration');
 // Hidden `icon::` lands in the registry, not in the dashboard itself.
-assert std.length(std.findSubstr('mdi:flash', cms.dashboards.data['registry.yaml'])) == 1;
-assert std.length(std.findSubstr('icon', cms.dashboards.data['energy-overview.yaml'])) == 0;
+assert std.length(std.findSubstr('mdi:flash', data['dashboards.registry.yaml'])) == 1;
+assert std.length(std.findSubstr('icon', data['dashboards.energy-overview.yaml'])) == 0;
 
 // The user's configuration is kept, the mixin sections are injected, tags are unquoted.
-local conf = ha.haConfigMap.data['configuration.yaml'];
+local conf = ha.haConfiguration;
 local has(s) = std.length(std.findSubstr(s, conf)) > 0;
 assert has('default_config:');
 assert has('automation: !include automations.yaml');

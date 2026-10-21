@@ -33,8 +33,10 @@ A mixin is an object with any of these fields (name -> resource), see
 - `homeassistantScripts`: a script.
 - `homeassistantScenes`: a scene or a list of them.
 
-Each kind becomes a ConfigMap (`ha-mixin-<kind>`) mounted read-only at
-`/config/mixins/<kind>`, so no sync is needed.
+All files (and the managed `configuration.yaml`) are bin-packed into as few ConfigMaps
+(`ha-mixins-<n>`) as fit under `_config.mixinShardBytes` (default 900KiB, Kubernetes allows
+1MiB), and one projected volume mounts them read-only at `/config/mixins/<kind>/`, so no sync
+is needed (the managed `configuration.yaml` also shows up at `/config/mixins/configuration.yaml`, the real one is a subPath mount). A single file larger than the limit fails the render.
 
 With `_config.configuration` set, the library renders it to `/config/configuration.yaml`
 (restarting the pod when it changes) and adds the sections that load the mixins, merging
@@ -50,10 +52,10 @@ lovelace:
   dashboards: !include mixins/dashboards/registry.yaml
 ```
 
-ConfigMaps are limited to 1MiB each, and HA must be reloaded to pick up changes.
+Contents update in place when they change; HA must be reloaded to pick them up. Which shard a file lands in can change as content grows.
 
 ## Tests
 
 `make test` runs `rustanka show` (set `RTK=tk` to use Tanka) over each Tanka environment in
 [test/environments](test/environments): default config, a full mixin set with a managed
-`configuration`, and the opt-in ServiceMonitor. Assertions live in each `main.jsonnet`.
+`configuration`, sharding against a tiny size limit, and the opt-in ServiceMonitor. Assertions live in each `main.jsonnet`.
