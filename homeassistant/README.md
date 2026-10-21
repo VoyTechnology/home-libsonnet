@@ -27,7 +27,32 @@ ServiceMonitor is opt-in (`metricsEnabled`).
 
 ## Mixins
 
-A mixin is an object with any of these fields (name -> resource), see
+`addMixins` takes a map of mixin name -> mixin and merges the resources of every mixin in
+it. A mixin is a plain object, so it can be imported from a library or written inline:
+
+```jsonnet
+homeassistant.addMixins({
+  // Imported, e.g. a repo with your automations and dashboards
+  home: import 'ha-data/mixin.libsonnet',
+
+  // Or inline
+  porch: {
+    homeassistantAutomations+:: {
+      porch_light: {
+        alias: 'Porch light at sunset',
+        triggers: [{ trigger: 'sun', event: 'sunset' }],
+        actions: [{ action: 'light.turn_on', target: { entity_id: 'light.porch' } }],
+      },
+    },
+    homeassistantDashboards+:: {
+      porch_overview: { title: 'Porch', icon:: 'mdi:door', views: [{ title: 'Overview', cards: [] }] },
+    },
+  },
+})
+```
+
+The names (`home`, `porch`) only label the mixins; resources with the same name are merged
+across them. A mixin is an object with any of these fields (name -> resource), see
 [example/mixin.libsonnet](example/mixin.libsonnet):
 
 - `homeassistantDashboards`: Lovelace config. Hidden `icon::` sets the sidebar icon, `title` the title. Names need a `-` or `_`.
