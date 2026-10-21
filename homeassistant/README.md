@@ -51,8 +51,8 @@ homeassistant.addMixins({
 })
 ```
 
-The names (`home`, `porch`) only label the mixins; resource names must still be unique across
-them. A mixin is an object with any of these fields (name -> resource), see
+The names (`home`, `porch`) only label the mixins; resources with the same name are merged
+across them. A mixin is an object with any of these fields (name -> resource), see
 [example/mixin.libsonnet](example/mixin.libsonnet):
 
 - `homeassistantDashboards`: Lovelace config. Hidden `icon::` sets the sidebar icon, `title` the title. Names need a `-` or `_`.
