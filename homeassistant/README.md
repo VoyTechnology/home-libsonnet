@@ -56,6 +56,6 @@ Contents update in place when they change; HA must be reloaded to pick them up. 
 
 ## Tests
 
-`make test` runs `rustanka show` (set `RTK=tk` to use Tanka) over each Tanka environment in
+`just test` runs `rustanka show` (set `RTK=tk` to use Tanka) over each Tanka environment in
 [test/environments](test/environments): default config, a full mixin set with a managed
 `configuration`, sharding against a tiny size limit, and the opt-in ServiceMonitor. Assertions live in each `main.jsonnet`.

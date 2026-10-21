@@ -1,6 +1,7 @@
 [tools]
 go-jsonnet = "0.20.0"
 jsonnet-bundler = "latest"
+just = "latest"
 
 [tools."github:grafana/rustanka"]
 version = "0.1.1"
@@ -13,4 +14,4 @@ linux-x64 = { asset_pattern = "rustanka-linux-amd64" }
 
 [tasks.test]
 description = "Render-test every library"
-run = "make test"
+run = "just test"

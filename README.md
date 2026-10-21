@@ -9,5 +9,5 @@ Self-contained Jsonnet libraries for my homelab, one folder each (layout modelle
 
 ```sh
 mise install
-make test    # renders every library as Tanka environments with rustanka
+just test    # renders every library as Tanka environments with rustanka
 ```
