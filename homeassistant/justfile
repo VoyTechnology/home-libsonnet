@@ -1,0 +1,10 @@
+rtk := env("RTK", "rustanka")
+
+# Every directory under test/environments is a Tanka environment that must render.
+test:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for env in test/environments/*; do
+        echo "rtk show $env"
+        {{ rtk }} show "$env" --dangerous-allow-redirect > /dev/null
+    done
