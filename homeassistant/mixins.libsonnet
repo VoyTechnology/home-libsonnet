@@ -27,12 +27,17 @@ local kinds = [
   addScript(name, script):: { homeassistantScripts+:: { [name]+: script } },
   addScene(name, scene):: { homeassistantScenes+:: { [name]: scene } },
 
-  // Merge a mixin (an object with any of the fields above) into this library.
-  addMixins(mixin)::
+  // Merge the resources of every mixin in `mixins` (name -> mixin) into this library.
+  addMixins(mixins)::
     std.foldl(
-      function(acc, kind) acc + (
-        if std.objectHasAll(mixin, kind) then { [kind]+:: mixin[kind] } else {}
-      ),
+      function(acc, kind) acc + {
+        [kind]+:: std.foldl(
+          function(m, name)
+            m + (if std.objectHasAll(mixins[name], kind) then mixins[name][kind] else {}),
+          std.objectFields(mixins),
+          {}
+        ),
+      },
       kinds,
       {}
     ),
