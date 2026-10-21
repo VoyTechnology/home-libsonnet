@@ -1,23 +1,25 @@
 # homeassistant
 
 ```jsonnet
-local ha = import 'homeassistant/main.libsonnet';
+local homeassistant = import 'homeassistant/main.libsonnet';
 
-ha
-+ {
+homeassistant {
   _config+:: {
+    // When using a mounted device, pin to a node
     nodeName: 'node1',
     devices: { zigbee: '/dev/ttyUSB0' },
     // Optional: your configuration.yaml, rendered to a ConfigMap. Mixin loading is injected.
     configuration: {
       default_config: {},
-      automation: ha.include('automations.yaml'),
+      automation: homeassistant.include('automations.yaml'),
     },
   },
 }
-+ ha.addMixins({ energy: import 'energy-mixin/mixin.libsonnet' })
-+ ha.addAutomation('porch', { alias: 'Porch', triggers: [], actions: [] })
++ homeassistant.addMixins({ energy: import 'energy-mixin/mixin.libsonnet' })
++ homeassistant.addAutomation('porch', { alias: 'Porch', triggers: [], actions: [] })
 ```
+
+Use `_config+::` (not `_config::`) so the defaults are kept.
 
 Config lives flat under `_config` (see [config.libsonnet](config.libsonnet)). No Ingress or
 HTTPRoute is created: expose the `homeassistant` Service however you like. The
