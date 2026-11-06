@@ -1,21 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Vendor a cert-manager release from its upstream Helm chart, rendered with defaults:
-# crds/ holds the CRDs as compact JSON plus an index (crds/main.libsonnet) and the
-# version (crds/VERSION); rendered.json holds every other object keyed by kind and name,
-# in the placeholder namespace __NAMESPACE__ that operator.libsonnet swaps for the real one.
+# Vendor the CRDs of a cert-manager release into crds/, as compact JSON plus an index
+# (crds/main.libsonnet) and the version they came from (crds/VERSION).
 #   ./generate.sh v1.19.1
-# Needs helm, yq and jq. The version in config.libsonnet must match (tests check it).
+# Needs helm and yq. The version in config.libsonnet must match (tests check it).
 version="${1:?usage: generate.sh <version, e.g. v1.19.1>}"
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 helm template cert-manager cert-manager \
-  --repo https://charts.jetstack.io --version "$version" --namespace __NAMESPACE__ \
+  --repo https://charts.jetstack.io --version "$version" \
   --set crds.enabled=true --set crds.keep=false \
-  --set webhook.networkPolicy.enabled=true > "$tmp/all.yaml"
+  > "$tmp/all.yaml"
 
 rm -rf crds && mkdir crds
 # Collapse the generated files in GitHub diffs and language stats.
@@ -32,6 +30,3 @@ yq -o=json -I=0 -s '"crds/" + .metadata.name + ".json"' 'select(.kind == "Custom
 } > crds/main.libsonnet
 printf '%s' "$version" > crds/VERSION
 
-# The startupapicheck Job is a Helm post-install hook; Flux waiting on the app replaces it.
-yq -o=json -I=0 'select(. != null and .kind != "CustomResourceDefinition" and (.metadata.name | test("startupapicheck") | not))' "$tmp/all.yaml" \
-  | jq -s 'map({key: ((.kind + "-" + .metadata.name) | ascii_downcase | gsub("[^a-z0-9]+"; "-")), value: .}) | from_entries' > rendered.json
