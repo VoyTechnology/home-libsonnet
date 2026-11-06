@@ -7,6 +7,8 @@
   local ns = cfg.namespace,
   // Leader election leases live here, as in the chart.
   local leaderNs = 'kube-system',
+  // The image tag is the version; CRDs are vendored for the same one (see crds/VERSION).
+  local version = std.reverse(std.split($._images.controller, ':'))[0],
 
   local components = {
     controller: { name: 'cert-manager', label: 'cert-manager', component: 'controller' },
@@ -23,7 +25,7 @@
   // Metadata labels, free to change.
   local labels(c) = selector(c) + {
     app: c.label,
-    'app.kubernetes.io/version': cfg.version,
+    'app.kubernetes.io/version': version,
     'app.kubernetes.io/managed-by': 'Tanka',
   },
   local meta(name, c, namespace=null) = {
@@ -61,9 +63,9 @@
     automountServiceAccountToken: true,
   },
 
-  local container(key, c, image, args, extra) = {
+  local container(key, c, args, extra) = {
     name: c.name,
-    image: '%s:%s' % [image, cfg.version],
+    image: $._images[key],
     imagePullPolicy: 'IfNotPresent',
     args: args,
     env: [{ name: 'POD_NAMESPACE', valueFrom: { fieldRef: { fieldPath: 'metadata.namespace' } } }],
@@ -118,12 +120,11 @@
   controller_container:: container(
     'controller',
     components.controller { name: 'cert-manager-controller' },
-    'quay.io/jetstack/cert-manager-controller',
     [
       '--v=2',
       '--cluster-resource-namespace=$(POD_NAMESPACE)',
       '--leader-election-namespace=' + leaderNs,
-      '--acme-http01-solver-image=quay.io/jetstack/cert-manager-acmesolver:' + cfg.version,
+      '--acme-http01-solver-image=' + $._images.acmesolver,
       '--max-concurrent-challenges=60',
     ],
     {
@@ -271,7 +272,6 @@
   cainjector_container:: container(
     'cainjector',
     components.cainjector,
-    'quay.io/jetstack/cert-manager-cainjector',
     ['--v=2', '--leader-election-namespace=' + leaderNs],
     { ports: [metricsPort] },
   ),
@@ -312,7 +312,6 @@
   webhook_container:: container(
     'webhook',
     components.webhook,
-    'quay.io/jetstack/cert-manager-webhook',
     [
       '--v=2',
       '--secure-port=10250',

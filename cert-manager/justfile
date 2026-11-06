@@ -9,6 +9,6 @@ test:
         {{ rtk }} show "$env" --dangerous-allow-redirect > /dev/null
     done
 
-# Re-vendor the chart for a release (also update `version` in config.libsonnet)
+# Re-vendor the chart for a release (also update the tags in images.libsonnet)
 generate version:
     ./generate.sh {{ version }}

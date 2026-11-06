@@ -4,7 +4,7 @@ set -euo pipefail
 # Vendor the CRDs of a cert-manager release into crds/, as compact JSON plus an index
 # (crds/main.libsonnet) and the version they came from (crds/VERSION).
 #   ./generate.sh v1.19.1
-# Needs helm and yq. The version in config.libsonnet must match (tests check it).
+# Needs helm and yq. The tags in images.libsonnet must match (tests check it).
 version="${1:?usage: generate.sh <version, e.g. v1.19.1>}"
 cd "$(dirname "${BASH_SOURCE[0]}")"
 

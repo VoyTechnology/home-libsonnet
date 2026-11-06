@@ -1,14 +1,17 @@
-// Overrides: another namespace and version, no CRDs or network policies, args and sizing.
+// Overrides: another namespace and images, no CRDs or network policies, args and sizing.
 local cm = (import '../../../main.libsonnet') {
   _config+:: {
     namespace: 'certs',
     createNamespace: true,
-    version: 'v1.20.0',
     installCRDs: false,
     webhookNetworkPolicy: false,
     replicas+: { controller: 2 },
     resources: { controller: { requests: { cpu: '10m' } } },
     nodeSelector: { role: 'infra' },
+  },
+  _images+:: {
+    controller: 'quay.io/jetstack/cert-manager-controller:v1.20.0',
+    acmesolver: 'quay.io/jetstack/cert-manager-acmesolver:v1.20.0',
   },
   controller_container+:: { args+: ['--dns01-recursive-nameservers-only'] },
 };
