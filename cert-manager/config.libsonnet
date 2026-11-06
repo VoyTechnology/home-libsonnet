@@ -18,7 +18,5 @@
     resources: {},
     nodeSelector: {},
     tolerations: [],
-    // Extra container args per component, e.g. DNS01 flags or the ingress-shim default issuer.
-    extraArgs: { controller: [], webhook: [], cainjector: [] },
   },
 }

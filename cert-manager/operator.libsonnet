@@ -65,7 +65,7 @@
     name: c.name,
     image: '%s:%s' % [image, cfg.version],
     imagePullPolicy: 'IfNotPresent',
-    args: args + cfg.extraArgs[key],
+    args: args,
     env: [{ name: 'POD_NAMESPACE', valueFrom: { fieldRef: { fieldPath: 'metadata.namespace' } } }],
     securityContext: {
       allowPrivilegeEscalation: false,
@@ -114,7 +114,8 @@
   // --- Controller ---
   cmControllerServiceAccount: serviceAccount(components.controller),
 
-  cmControllerDeployment: deployment('controller', components.controller, container(
+  // The controller container. Extend it with a mixin, e.g. `controller_container+:: { args+: ['--v=4'] }`.
+  controller_container:: container(
     'controller',
     components.controller { name: 'cert-manager-controller' },
     'quay.io/jetstack/cert-manager-controller',
@@ -136,7 +137,9 @@
         failureThreshold: 8,
       },
     },
-  )),
+  ),
+
+  cmControllerDeployment: deployment('controller', components.controller, $.controller_container),
 
   cmControllerService: {
     apiVersion: 'v1',
@@ -264,13 +267,16 @@
   // --- Cainjector: copies the webhook CA into webhook configurations, CRDs and APIServices ---
   cmCainjectorServiceAccount: serviceAccount(components.cainjector),
 
-  cmCainjectorDeployment: deployment('cainjector', components.cainjector, container(
+  // The cainjector container. Extend it with a mixin, e.g. `cainjector_container+:: { args+: ['--v=4'] }`.
+  cainjector_container:: container(
     'cainjector',
     components.cainjector,
     'quay.io/jetstack/cert-manager-cainjector',
     ['--v=2', '--leader-election-namespace=' + leaderNs],
     { ports: [metricsPort] },
-  )),
+  ),
+
+  cmCainjectorDeployment: deployment('cainjector', components.cainjector, $.cainjector_container),
 
   cmCainjectorService: {
     apiVersion: 'v1',
@@ -302,7 +308,8 @@
   // --- Webhook: validates and mutates cert-manager resources ---
   cmWebhookServiceAccount: serviceAccount(components.webhook),
 
-  cmWebhookDeployment: deployment('webhook', components.webhook, container(
+  // The webhook container. Extend it with a mixin, e.g. `webhook_container+:: { args+: ['--v=4'] }`.
+  webhook_container:: container(
     'webhook',
     components.webhook,
     'quay.io/jetstack/cert-manager-webhook',
@@ -338,7 +345,9 @@
         failureThreshold: 3,
       },
     },
-  )),
+  ),
+
+  cmWebhookDeployment: deployment('webhook', components.webhook, $.webhook_container),
 
   cmWebhookService: {
     apiVersion: 'v1',
