@@ -1,0 +1,11 @@
+{
+  "apiVersion": "tanka.dev/v1alpha1",
+  "kind": "Environment",
+  "metadata": { "name": "test/custom" },
+  "spec": {
+    "apiServer": "https://localhost:6443",
+    "namespace": "cloudflare-gateway-system",
+    "resourceDefaults": {},
+    "expectVersions": {}
+  }
+}
