@@ -6,6 +6,7 @@ Self-contained Jsonnet libraries for my homelab, one folder each (layout modelle
 | Library | What |
 | --- | --- |
 | [`external-secrets`](external-secrets) | External Secrets Operator (Deployments, RBAC, webhook, vendored CRDs) |
+| [`external-dns`](external-dns) | external-dns (Deployment, RBAC, Service, vendored CRDs) |
 | [`cert-manager`](cert-manager) | cert-manager (Deployments, RBAC, webhooks, NetworkPolicies, vendored CRDs) |
 | [`homeassistant`](homeassistant) | Home Assistant StatefulSet/Service/Ingress, plus mixin-provisioned dashboards, automations, scripts and scenes |
 
