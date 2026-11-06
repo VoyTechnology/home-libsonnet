@@ -6,10 +6,6 @@
     // Render the Namespace too. Leave off for existing namespaces such as kube-system.
     createNamespace: false,
 
-    // renovate: datasource=github-releases depName=external-secrets/external-secrets
-    // Must match crds/VERSION: run ./generate-crds.sh <version> when bumping.
-    version: 'v0.18.2',
-    image: 'oci.external-secrets.io/external-secrets/external-secrets',
     imagePullPolicy: 'IfNotPresent',
 
     // Install the (vendored) CRDs. Turn off if they are managed elsewhere.

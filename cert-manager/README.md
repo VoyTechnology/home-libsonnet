@@ -18,7 +18,9 @@ certManager {
 
 Use `_config+::` (not `_config::`) so the defaults are kept. All options are in
 [config.libsonnet](config.libsonnet): namespace (optionally rendered with `createNamespace`),
-version, replicas, resources and scheduling per component. The containers are the hidden
+replicas, resources and scheduling per component. Images (and so the version) are in
+[images.libsonnet](images.libsonnet) as `_images`; override them with `_images+::`, which is also
+what Renovate bumps in the consuming repo. The containers are the hidden
 fields `controller_container`, `cainjector_container` and `webhook_container`: extend them with
 a mixin (`args+:`, `env+:`, `resources+:`, ...) for anything the config doesn't cover. Object names are the
 chart's (`cert-manager`, `cert-manager-webhook`, `cert-manager-cainjector`), so it can take
@@ -34,10 +36,11 @@ Jsonnet cannot fetch them. To upgrade:
 just generate v1.20.0   # needs helm and yq; re-vendors crds/ and crds/VERSION
 ```
 
-then set `version` in [config.libsonnet](config.libsonnet) to the same value and diff
+then set the tags in [images.libsonnet](images.libsonnet) to the same value and diff
 `helm template cert-manager` of the new chart against the objects in
 [operator.libsonnet](operator.libsonnet) for RBAC or argument changes. The default test fails
-if the version and the CRDs disagree. The chart's startupapicheck Job (a Helm hook) is left out.
+if the image tags and the CRDs disagree. Bumping `_images` past the vendored CRDs from a consumer
+only updates the images, so take minor upgrades here first. The chart's startupapicheck Job (a Helm hook) is left out.
 
 ## Tests
 

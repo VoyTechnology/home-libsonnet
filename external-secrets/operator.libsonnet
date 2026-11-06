@@ -6,6 +6,8 @@
   local cfg = $._config,
   local ns = cfg.namespace,
   local fullname = cfg.name,
+  // The image tag is the version; CRDs are vendored for the same one (see crds/VERSION).
+  local version = std.reverse(std.split($._images.externalSecrets, ':'))[0],
   local webhookName = '%s-webhook' % cfg.name,
   local certName = '%s-cert-controller' % cfg.name,
 
@@ -16,7 +18,7 @@
   },
   // Metadata labels, free to change.
   local labels(component) = selector(component) + {
-    'app.kubernetes.io/version': cfg.version,
+    'app.kubernetes.io/version': version,
     'app.kubernetes.io/managed-by': 'Tanka',
   },
   local meta(name, component, namespaced=true) = {
@@ -26,7 +28,7 @@
 
   local container(component, key, args, extra) = {
     name: component,
-    image: '%s:%s' % [cfg.image, cfg.version],
+    image: $._images.externalSecrets,
     imagePullPolicy: cfg.imagePullPolicy,
     securityContext: {
       allowPrivilegeEscalation: false,

@@ -10,7 +10,7 @@ local objects = [
 local kinds = std.set([o.kind for o in objects]);
 
 // The vendored CRDs must come from the version being deployed.
-assert es._config.version == importstr '../../../crds/VERSION' : 'run generate-crds.sh for ' + es._config.version;
+assert std.endsWith(es._images.externalSecrets, ':' + importstr '../../../crds/VERSION') : 'run generate-crds.sh for the version in images.libsonnet';
 assert std.length(std.objectFields(es.esCrds)) == 21;
 assert kinds == ['ClusterRole', 'ClusterRoleBinding', 'Deployment', 'Role', 'RoleBinding', 'Secret', 'Service', 'ServiceAccount', 'ValidatingWebhookConfiguration'] : kinds;
 assert es.esNamespace == {};

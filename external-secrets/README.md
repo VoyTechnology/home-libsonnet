@@ -20,7 +20,7 @@ externalSecrets {
 
 Use `_config+::` (not `_config::`) so the defaults are kept. All options are in
 [config.libsonnet](config.libsonnet): names, namespace (optionally rendered with
-`createNamespace`), image and version, replicas, resources, scheduling and extra args.
+`createNamespace`), replicas, resources, scheduling and extra args.
 
 Resources are named `<name>`, `<name>-webhook` and `<name>-cert-controller`. The service
 account the controller runs as is `esServiceAccount.metadata.name`, which is what a
@@ -35,8 +35,8 @@ Jsonnet cannot fetch them. To upgrade:
 just generate v0.19.0   # needs helm and yq; re-vendors crds/ and crds/VERSION
 ```
 
-then set `version` in [config.libsonnet](config.libsonnet) to the same value. The default
-test fails if the two disagree. Renovate can bump `version`, but the CRDs still need
+then set the tag in [images.libsonnet](images.libsonnet) to the same value. The default
+test fails if the two disagree. Renovate can bump `_images` in a consumer, but the CRDs still need
 regenerating in the same PR.
 
 ## Tests

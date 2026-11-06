@@ -9,7 +9,8 @@ local all = objects({ [f]: cm[f] for f in std.objectFields(cm) if f != '_config'
 local kinds = std.set([o.kind for o in all]);
 
 // The vendored CRDs must come from the version being deployed.
-assert cm._config.version == importstr '../../../crds/VERSION' : 'run generate.sh for ' + cm._config.version;
+local tag(image) = std.reverse(std.split(image, ':'))[0];
+assert std.all([tag(cm._images[i]) == importstr '../../../crds/VERSION' for i in std.objectFields(cm._images)]) : 'run generate.sh and set images.libsonnet to match crds/VERSION';
 assert std.length(std.objectFields(cm.cmCrds)) == 6;
 assert std.length(all) == 50 : std.length(all);
 assert kinds == ['ClusterRole', 'ClusterRoleBinding', 'CustomResourceDefinition', 'Deployment', 'MutatingWebhookConfiguration', 'NetworkPolicy', 'Role', 'RoleBinding', 'Service', 'ServiceAccount', 'ValidatingWebhookConfiguration'] : kinds;

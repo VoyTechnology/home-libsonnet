@@ -9,6 +9,6 @@ test:
         {{ rtk }} show "$env" --dangerous-allow-redirect > /dev/null
     done
 
-# Re-vendor the CRDs for a release (also update `version` in config.libsonnet)
+# Re-vendor the CRDs for a release (also update the tag in images.libsonnet)
 generate version:
     ./generate-crds.sh {{ version }}
