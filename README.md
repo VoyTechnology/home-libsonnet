@@ -10,6 +10,7 @@ Self-contained Jsonnet libraries for my homelab, one folder each (layout modelle
 | [`cert-manager`](cert-manager) | cert-manager (Deployments, RBAC, webhooks, NetworkPolicies, vendored CRDs) |
 | [`pocket-id-operator`](pocket-id-operator) | pocket-id-operator (Deployment, RBAC, Service, vendored CRDs) |
 | [`metallb`](metallb) | MetalLB (controller, speaker with FRR, RBAC, webhook, vendored CRDs) |
+| [`envoy-gateway`](envoy-gateway) | Envoy Gateway control plane (Deployment, Service, RBAC, webhook, Envoy CRDs) |
 | [`cloudflare-gateway-controller`](cloudflare-gateway-controller) | cloudflare-gateway-controller, Gateway API over Cloudflare tunnels (Deployment, RBAC, vendored CRDs) |
 | [`homeassistant`](homeassistant) | Home Assistant StatefulSet/Service/Ingress, plus mixin-provisioned dashboards, automations, scripts and scenes |
 
