@@ -9,8 +9,8 @@ local cm = (import '../../../main.libsonnet') {
     replicas+: { controller: 2 },
     resources: { controller: { requests: { cpu: '10m' } } },
     nodeSelector: { role: 'infra' },
-    extraArgs+: { controller: ['--dns01-recursive-nameservers-only'] },
   },
+  controller_container+:: { args+: ['--dns01-recursive-nameservers-only'] },
 };
 
 local controller = cm.cmControllerDeployment;

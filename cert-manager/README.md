@@ -10,15 +10,17 @@ so no chart is needed. For `ClusterIssuer` and `Certificate` objects use
 local certManager = import 'cert-manager/main.libsonnet';
 
 certManager {
-  _config+:: {
-    extraArgs+: { controller: ['--dns01-recursive-nameservers-only'] },
+  controller_container+:: {
+    args+: ['--dns01-recursive-nameservers-only'],
   },
 }
 ```
 
 Use `_config+::` (not `_config::`) so the defaults are kept. All options are in
 [config.libsonnet](config.libsonnet): namespace (optionally rendered with `createNamespace`),
-version, replicas, resources, scheduling and extra args per component. Object names are the
+version, replicas, resources and scheduling per component. The containers are the hidden
+fields `controller_container`, `cainjector_container` and `webhook_container`: extend them with
+a mixin (`args+:`, `env+:`, `resources+:`, ...) for anything the config doesn't cover. Object names are the
 chart's (`cert-manager`, `cert-manager-webhook`, `cert-manager-cainjector`), so it can take
 over from a Helm install in place. Objects are the `cm*` fields; ClusterRoles and bindings of
 the controllers are grouped in `cmControllerClusterRoles` and `cmControllerClusterRoleBindings`.
