@@ -13,6 +13,7 @@ Self-contained Jsonnet libraries for my homelab, one folder each (layout modelle
 | [`envoy-gateway`](envoy-gateway) | Envoy Gateway control plane (Deployment, Service, RBAC, webhook, Envoy CRDs) |
 | [`cloudflare-gateway-controller`](cloudflare-gateway-controller) | cloudflare-gateway-controller, Gateway API over Cloudflare tunnels (Deployment, RBAC, vendored CRDs) |
 | [`garage`](garage) | Garage S3-compatible object store (single-replica StatefulSet, Service, bootstrap Job) |
+| [`minecraft`](minecraft) | Minecraft server StatefulSet, Services per port and an mc-backup sidecar, configured by mixins |
 | [`homeassistant`](homeassistant) | Home Assistant StatefulSet/Service/Ingress, plus mixin-provisioned dashboards, automations, scripts and scenes |
 
 Every library keeps its images in `images.libsonnet` as `_images+::` (one `// renovate:` comment per
