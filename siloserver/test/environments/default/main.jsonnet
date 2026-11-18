@@ -1,5 +1,7 @@
 // Overrides: a namespace, an env var, a replaced volume, a container mixin and a pod mixin.
-local container = (import 'github.com/jsonnet-libs/k8s-libsonnet/1.35/main.libsonnet').core.v1.container;
+local k = import 'github.com/jsonnet-libs/k8s-libsonnet/1.35/main.libsonnet';
+local container = k.core.v1.container;
+local volume = k.core.v1.volume;
 
 local m = (import '../../../main.libsonnet') {
   _config+:: {
@@ -7,7 +9,9 @@ local m = (import '../../../main.libsonnet') {
     silo+: { mediaPath: '/nfs', storage+: { storageClassName: 'longhorn' } },
   },
   silo_env+:: { SILO_NET_TCP_CONGESTION: 'off' },
-  silo_volumes+:: { media: { nfs: { server: 's1', path: '/storage' } } },
+  silo_volumes+:: {
+    media: volume.withName('media') + volume.nfs.withServer('s1') + volume.nfs.withPath('/storage'),
+  },
   silo_container+:: container.resources.withLimits({ memory: '8Gi' }) + { volumeMounts+: [{ name: 'extra', mountPath: '/extra' }] },
   silo_pod_spec+:: { tolerations: [] },
 };

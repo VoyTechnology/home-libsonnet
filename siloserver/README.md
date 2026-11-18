@@ -8,7 +8,9 @@ local silo = import 'siloserver/main.libsonnet';
 
 silo {
   _config+:: { namespace: 'media', silo+: { mediaPath: '/nfs' } },
-  silo_volumes+:: { media: { nfs: { server: 's1', path: '/storage' } } },
+  silo_volumes+:: {
+    media: volume.withName('media') + volume.nfs.withServer('s1') + volume.nfs.withPath('/storage'),
+  },
   silo_env+:: { SILO_NET_TCP_CONGESTION: 'off' },
   silo_pod_spec+:: { tolerations: [] },
 }
@@ -16,8 +18,8 @@ silo {
 
 | Hidden field | What |
 | --- | --- |
-| `silo_env` | Environment as `NAME: value`; an object value is a `valueFrom`. Rendered sorted by name |
-| `silo_volumes` | Pod volumes (`media`, `transcode`, `downloads`) as the volume source. `config` is the claim |
+| `silo_env` | Environment as `NAME: value`; an object value is an `envVar` (e.g. `envVar.fromSecretRef`). Rendered sorted by name |
+| `silo_volumes` | Pod volumes (`media`, `transcode`, `downloads`) by name, each a complete `volume`. `config` is the claim |
 | `silo_container` | The container, for anything else (probes, capabilities, devices for transcoding) |
 | `silo_pod_spec` | Pod spec without containers and volumes |
 | `silo_ports` | Container ports, by name: `http` 8080, `jellyfin` 8096 and `audiobookshelf` 13378 |

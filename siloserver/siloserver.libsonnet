@@ -2,22 +2,35 @@
 // PostgreSQL and Redis run inside the container, so there is one volume and nothing else to deploy.
 // Customise it with mixins on the hidden fields: `silo_env`, `silo_volumes`, `silo_container`,
 // `silo_pod_spec`.
+local k = import 'github.com/jsonnet-libs/k8s-libsonnet/1.35/main.libsonnet';
+local container = k.core.v1.container;
+local containerPort = k.core.v1.containerPort;
+local envVar = k.core.v1.envVar;
+local pvc = k.core.v1.persistentVolumeClaim;
+local service = k.core.v1.service;
+local servicePort = k.core.v1.servicePort;
+local statefulSet = k.apps.v1.statefulSet;
+local volume = k.core.v1.volume;
+local volumeMount = k.core.v1.volumeMount;
+
 {
   local cfg = $._config.silo,
   local name = cfg.name,
 
   // The selector and volumeClaimTemplates of a StatefulSet are immutable. Never change these.
   local selector = { 'app.kubernetes.io/name': 'silo' },
-  local meta(n) = { name: n, namespace: $._config.namespace, labels: selector },
+  // The namespace and labels for an object of the type `t`, e.g. `statefulSet`.
+  local meta(t) = t.metadata.withNamespace($._config.namespace) + t.metadata.withLabels(selector),
 
   // The ports the container always listens on. The Jellyfin and Audiobookshelf ports are the
   // compatibility listeners, which the admin settings can turn off.
   silo_ports:: { http: 8080, jellyfin: 8096, audiobookshelf: 13378 },
 
-  // Environment as a map of variable to value; an object value is a `valueFrom`. Rendered sorted by name.
+  // Environment as a map of variable to value; an object value is a complete `envVar`, e.g.
+  // `envVar.fromSecretRef('NAME', 'secret', 'key')`. Rendered sorted by name.
   envList(env):: [
-    { name: k } + (if std.isObject(env[k]) then { valueFrom: env[k] } else { value: std.toString(env[k]) })
-    for k in std.sort(std.objectFields(env))
+    if std.isObject(env[n]) then env[n] else envVar.new(n, std.toString(env[n]))
+    for n in std.sort(std.objectFields(env))
   ],
 
   silo_env:: {
@@ -27,43 +40,40 @@
     PUID: cfg.puid,
     PGID: cfg.pgid,
     TZ: cfg.timezone,
-    SECRET_KEY: { secretKeyRef: { name: cfg.secretName, key: cfg.secretKey } },
+    SECRET_KEY: envVar.fromSecretRef('SECRET_KEY', cfg.secretName, cfg.secretKey),
   },
 
-  // Pod volumes by name, as the volume source. `config` is the claim below. Replace `media` with the
-  // real source, e.g. `silo_volumes+:: { media: { nfs: { server: 's1', path: '/storage' } } }`.
+  // Pod volumes, keyed by their name. `config` is the claim below. Replace `media` with the real source, e.g.
+  // `silo_volumes+:: { media: volume.fromEmptyDir('media') + ... }` or
+  // `volume.withName('media') + volume.nfs.withServer('s1') + volume.nfs.withPath('/storage')`.
   silo_volumes:: {
-    media: { emptyDir: {} },
+    media: volume.fromEmptyDir('media'),
     // Transcode segments and prepared downloads. Scratch space, not worth backing up.
-    transcode: { emptyDir: {} },
-    downloads: { emptyDir: {} },
+    transcode: volume.fromEmptyDir('transcode'),
+    downloads: volume.fromEmptyDir('downloads'),
   },
 
-  silo_container:: {
-    name: 'silo',
-    image: $._images.silo,
-    env: $.envList($.silo_env),
-    ports: [
-      { name: n, containerPort: $.silo_ports[n], protocol: 'TCP' }
+  local probe(p) =
+    p.httpGet.withPath('/api/v1/health')
+    + p.httpGet.withPort('http')
+    + p.withPeriodSeconds(10),
+
+  silo_container::
+    container.new('silo', $._images.silo)
+    + container.withEnv($.envList($.silo_env))
+    + container.withPorts([
+      containerPort.newNamed($.silo_ports[n], n)
       for n in std.objectFields($.silo_ports)
-    ],
-    volumeMounts: [
-      { name: 'config', mountPath: '/config' },
-      { name: 'media', mountPath: cfg.mediaPath, readOnly: true },
-      { name: 'transcode', mountPath: '/tmp/silo-transcode' },
-      { name: 'downloads', mountPath: '/tmp/silo-download-artifacts' },
-    ],
+    ])
+    + container.withVolumeMounts([
+      volumeMount.new('config', '/config'),
+      volumeMount.new('media', cfg.mediaPath) + volumeMount.withReadOnly(true),
+      volumeMount.new('transcode', '/tmp/silo-transcode'),
+      volumeMount.new('downloads', '/tmp/silo-download-artifacts'),
+    ])
     // Startup covers the first PostgreSQL initialisation and migrations after an update.
-    startupProbe: {
-      httpGet: { path: '/api/v1/health', port: 'http' },
-      periodSeconds: 10,
-      failureThreshold: 60,
-    },
-    readinessProbe: {
-      httpGet: { path: '/api/v1/health', port: 'http' },
-      periodSeconds: 10,
-    },
-  },
+    + probe(container.startupProbe) + container.startupProbe.withFailureThreshold(60)
+    + probe(container.readinessProbe),
 
   // The pod spec without the containers and volumes. Extend it, e.g. `silo_pod_spec+:: { tolerations: [...] }`.
   silo_pod_spec:: {
@@ -71,42 +81,32 @@
     terminationGracePeriodSeconds: 120,
   },
 
-  siloStatefulSet: {
-    apiVersion: 'apps/v1',
-    kind: 'StatefulSet',
-    metadata: meta(name),
-    spec: {
-      replicas: 1,
-      serviceName: name,
-      selector: { matchLabels: selector },
-      template: {
-        metadata: { labels: selector },
-        spec: $.silo_pod_spec {
-          containers: [$.silo_container],
-          volumes: [{ name: n } + $.silo_volumes[n] for n in std.objectFields($.silo_volumes)],
-        },
-      },
-      volumeClaimTemplates: [{
-        metadata: { name: 'config' },
-        spec: {
-          accessModes: ['ReadWriteOnce'],
-          resources: { requests: { storage: cfg.storage.size } },
-        } + (if cfg.storage.storageClassName != null then { storageClassName: cfg.storage.storageClassName } else {}),
-      }],
-    },
-  },
-
-  siloService: {
-    apiVersion: 'v1',
-    kind: 'Service',
-    metadata: meta(name),
-    spec: {
-      type: 'ClusterIP',
-      ports: [
-        { name: n, port: $.silo_ports[n], targetPort: n, protocol: 'TCP' }
-        for n in std.objectFields($.silo_ports)
+  siloStatefulSet:
+    statefulSet.new(
+      name,
+      replicas=1,
+      containers=[$.silo_container],
+      volumeClaims=[
+        pvc.new('config')
+        + pvc.spec.withAccessModes(['ReadWriteOnce'])
+        + pvc.spec.resources.withRequests({ storage: cfg.storage.size })
+        + (if cfg.storage.storageClassName != null then pvc.spec.withStorageClassName(cfg.storage.storageClassName) else {}),
       ],
-      selector: selector,
-    },
-  },
+    )
+    + meta(statefulSet)
+    + statefulSet.spec.withServiceName(name)
+    + statefulSet.spec.selector.withMatchLabels(selector)
+    + statefulSet.spec.template.metadata.withLabels(selector)
+    + statefulSet.spec.template.spec.withVolumes([
+      $.silo_volumes[n]
+      for n in std.objectFields($.silo_volumes)
+    ])
+    + { spec+: { template+: { spec+: $.silo_pod_spec } } },
+
+  siloService:
+    service.new(name, selector, [
+      servicePort.newNamed(n, $.silo_ports[n], n)
+      for n in std.objectFields($.silo_ports)
+    ])
+    + meta(service),
 }
