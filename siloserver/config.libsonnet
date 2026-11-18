@@ -1,7 +1,5 @@
 {
   _config+:: {
-    namespace: 'silo',
-
     silo+: {
       // Name of the StatefulSet and Service. The selector is immutable, never change it.
       name: 'silo',

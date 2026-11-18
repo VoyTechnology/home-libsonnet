@@ -1,11 +1,10 @@
-// Overrides: a namespace, an env var, a replaced volume, a container mixin and a pod mixin.
+// Overrides: an env var, a replaced volume, a container mixin and a pod mixin.
 local k = import 'github.com/jsonnet-libs/k8s-libsonnet/1.35/main.libsonnet';
 local container = k.core.v1.container;
 local volume = k.core.v1.volume;
 
 local m = (import '../../../main.libsonnet') {
   _config+:: {
-    namespace: 'media',
     silo+: { mediaPath: '/nfs', storage+: { storageClassName: 'longhorn' } },
   },
   silo_env+:: { SILO_NET_TCP_CONGESTION: 'off' },
@@ -20,7 +19,6 @@ local sts = m.silo_statefulset;
 local pod = sts.spec.template.spec;
 local c = pod.containers[0];
 assert sts.spec.selector.matchLabels == { 'app.kubernetes.io/name': 'silo' };
-assert sts.metadata.namespace == 'media';
 assert [e.name for e in c.env] == [
   'ABS_PORT',
   'JF_PORT',

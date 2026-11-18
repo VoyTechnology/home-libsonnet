@@ -7,7 +7,7 @@ StatefulSet with a Service. Nothing is a values dump: it is configured by mixing
 local silo = import 'siloserver/main.libsonnet';
 
 silo {
-  _config+:: { namespace: 'media', silo+: { mediaPath: '/nfs' } },
+  _config+:: { silo+: { mediaPath: '/nfs' } },
   silo_volumes+:: {
     media: volume.withName('media') + volume.nfs.withServer('s1') + volume.nfs.withPath('/storage'),
   },

@@ -19,8 +19,8 @@ local volumeMount = k.core.v1.volumeMount;
 
   // The selector and volumeClaimTemplates of a StatefulSet are immutable. Never change these.
   local selector = { 'app.kubernetes.io/name': 'silo' },
-  // The namespace and labels for an object of the type `t`, e.g. `statefulSet`.
-  local meta(t) = t.metadata.withNamespace($._config.namespace) + t.metadata.withLabels(selector),
+  // The labels for an object of the type `t`, e.g. `statefulSet`. The namespace comes from the Tanka environment.
+  local meta(t) = t.metadata.withLabels(selector),
 
   // The ports the container always listens on. The Jellyfin and Audiobookshelf ports are the
   // compatibility listeners, which the admin settings can turn off.
