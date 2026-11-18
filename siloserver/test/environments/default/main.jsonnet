@@ -16,7 +16,7 @@ local m = (import '../../../main.libsonnet') {
   silo_pod_spec+:: { tolerations: [] },
 };
 
-local sts = m.siloStatefulSet;
+local sts = m.silo_stateful_set;
 local pod = sts.spec.template.spec;
 local c = pod.containers[0];
 assert sts.spec.selector.matchLabels == { 'app.kubernetes.io/name': 'silo' };
@@ -42,6 +42,6 @@ assert c.resources == {
 };
 assert pod.tolerations == [] && pod.terminationGracePeriodSeconds == 120;
 assert sts.spec.volumeClaimTemplates[0].spec.storageClassName == 'longhorn';
-assert m.siloService.spec.selector == sts.spec.selector.matchLabels;
-assert [p.name for p in m.siloService.spec.ports] == ['audiobookshelf', 'http', 'jellyfin'];
+assert m.silo_service.spec.selector == sts.spec.selector.matchLabels;
+assert [p.name for p in m.silo_service.spec.ports] == ['audiobookshelf', 'http', 'jellyfin'];
 m

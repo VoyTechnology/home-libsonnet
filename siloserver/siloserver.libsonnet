@@ -28,7 +28,7 @@ local volumeMount = k.core.v1.volumeMount;
 
   // Environment as a map of variable to value; an object value is a complete `envVar`, e.g.
   // `envVar.fromSecretRef('NAME', 'secret', 'key')`. Rendered sorted by name.
-  envList(env):: [
+  env_list(env):: [
     if std.isObject(env[n]) then env[n] else envVar.new(n, std.toString(env[n]))
     for n in std.sort(std.objectFields(env))
   ],
@@ -60,7 +60,7 @@ local volumeMount = k.core.v1.volumeMount;
 
   silo_container::
     container.new('silo', $._images.silo)
-    + container.withEnv($.envList($.silo_env))
+    + container.withEnv($.env_list($.silo_env))
     + container.withPorts([
       containerPort.newNamed($.silo_ports[n], n)
       for n in std.objectFields($.silo_ports)
@@ -81,7 +81,7 @@ local volumeMount = k.core.v1.volumeMount;
     terminationGracePeriodSeconds: 120,
   },
 
-  siloStatefulSet:
+  silo_stateful_set:
     statefulSet.new(
       name,
       replicas=1,
@@ -103,7 +103,7 @@ local volumeMount = k.core.v1.volumeMount;
     ])
     + { spec+: { template+: { spec+: $.silo_pod_spec } } },
 
-  siloService:
+  silo_service:
     service.new(name, selector, [
       servicePort.newNamed(n, $.silo_ports[n], n)
       for n in std.objectFields($.silo_ports)
