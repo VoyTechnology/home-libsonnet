@@ -7,7 +7,6 @@ StatefulSet with a Service. Nothing is a values dump: it is configured by mixing
 local silo = import 'siloserver/main.libsonnet';
 
 silo {
-  _config+:: { silo+: { mediaPath: '/nfs' } },
   silo_volumes+:: {
     media: volume.withName('media') + volume.nfs.withServer('s1') + volume.nfs.withPath('/storage'),
   },
@@ -26,7 +25,7 @@ silo {
 
 `SECRET_KEY` is read from the Secret `silo.secretName`; no Secret is rendered here. Silo refuses to start
 without it, and losing or changing it makes the encrypted settings unrecoverable. The `media` volume is
-mounted read-only at `silo.mediaPath`, an `emptyDir` until replaced. Sign-in plugins (OIDC, LDAP) and the
+mounted read-only at Silo's default `/mnt/media`, an `emptyDir` until replaced. Sign-in plugins (OIDC, LDAP) and the
 rest of the settings are managed in Silo's admin UI and stored in its database.
 
 Replicas are fixed at one (PostgreSQL and Redis run in the pod on a ReadWriteOnce volume). The recommended

@@ -12,10 +12,6 @@
       // /config holds the bundled PostgreSQL, Redis and Silo's own state.
       storage: { size: '10Gi', storageClassName: null },
 
-      // Where the `media` volume is mounted, read-only. Libraries are stored with this path, so
-      // keep it when moving from another server that mounted the same files elsewhere.
-      mediaPath: '/mnt/media',
-
       // The account that runs Silo and reads the media.
       puid: 1000,
       pgid: 1000,

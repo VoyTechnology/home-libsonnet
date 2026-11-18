@@ -67,7 +67,8 @@ local volumeMount = k.core.v1.volumeMount;
     ])
     + container.withVolumeMounts([
       volumeMount.new('config', '/config'),
-      volumeMount.new('media', cfg.mediaPath) + volumeMount.withReadOnly(true),
+      // Silo's default media root. Libraries are stored with this path.
+      volumeMount.new('media', '/mnt/media') + volumeMount.withReadOnly(true),
       volumeMount.new('transcode', '/tmp/silo-transcode'),
       volumeMount.new('downloads', '/tmp/silo-download-artifacts'),
     ])

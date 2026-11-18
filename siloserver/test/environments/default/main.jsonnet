@@ -5,7 +5,7 @@ local volume = k.core.v1.volume;
 
 local m = (import '../../../main.libsonnet') {
   _config+:: {
-    silo+: { mediaPath: '/nfs', storage+: { storageClassName: 'longhorn' } },
+    silo+: { storage+: { storageClassName: 'longhorn' } },
   },
   silo_env+:: { SILO_NET_TCP_CONGESTION: 'off' },
   silo_volumes+:: {
@@ -31,7 +31,7 @@ assert [e.name for e in c.env] == [
 ];
 assert c.env[5].valueFrom.secretKeyRef == { name: 'silo-secrets', key: 'secret_key' };
 assert [v.name for v in c.volumeMounts] == ['config', 'media', 'transcode', 'downloads', 'extra'];
-assert c.volumeMounts[1] == { name: 'media', mountPath: '/nfs', readOnly: true };
+assert c.volumeMounts[1] == { name: 'media', mountPath: '/mnt/media', readOnly: true };
 local vol(n) = [v for v in pod.volumes if v.name == n][0];
 assert vol('media') == { name: 'media', nfs: { server: 's1', path: '/storage' } };
 assert c.resources == {
