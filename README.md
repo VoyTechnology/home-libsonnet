@@ -16,6 +16,7 @@ Self-contained Jsonnet libraries for my homelab, one folder each (layout modelle
 | [`minecraft`](minecraft) | Minecraft server StatefulSet, Services per port and an mc-backup sidecar, configured by mixins |
 | [`paperless`](paperless) | Paperless-ngx Deployment with a Redis sidecar and Service, configured by mixins |
 | [`donetick`](donetick) | Donetick Deployment on SQLite with ConfigMap, PVC and Service, configured by mixins |
+| [`siloserver`](siloserver) | Silo media server (omnibus image) StatefulSet and Service, configured by mixins |
 | [`homeassistant`](homeassistant) | Home Assistant StatefulSet/Service/Ingress, plus mixin-provisioned dashboards, automations, scripts and scenes |
 
 Every library keeps its images in `images.libsonnet` as `_images+::` (one `// renovate:` comment per
