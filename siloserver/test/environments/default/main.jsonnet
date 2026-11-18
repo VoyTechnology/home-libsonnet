@@ -1,12 +1,14 @@
 // Overrides: a namespace, an env var, a replaced volume, a container mixin and a pod mixin.
+local container = (import 'github.com/jsonnet-libs/k8s-libsonnet/1.35/main.libsonnet').core.v1.container;
+
 local m = (import '../../../main.libsonnet') {
   _config+:: {
     namespace: 'media',
-    silo+: { mediaPath: '/nfs', resources+: { limits+: { memory: '8Gi' } }, storage+: { storageClassName: 'longhorn' } },
+    silo+: { mediaPath: '/nfs', storage+: { storageClassName: 'longhorn' } },
   },
   silo_env+:: { SILO_NET_TCP_CONGESTION: 'off' },
   silo_volumes+:: { media: { nfs: { server: 's1', path: '/storage' } } },
-  silo_container+:: { volumeMounts+: [{ name: 'extra', mountPath: '/extra' }] },
+  silo_container+:: container.resources.withLimits({ memory: '8Gi' }) + { volumeMounts+: [{ name: 'extra', mountPath: '/extra' }] },
   silo_pod_spec+:: { tolerations: [] },
 };
 
@@ -31,7 +33,7 @@ assert c.volumeMounts[1] == { name: 'media', mountPath: '/nfs', readOnly: true }
 local vol(n) = [v for v in pod.volumes if v.name == n][0];
 assert vol('media') == { name: 'media', nfs: { server: 's1', path: '/storage' } };
 assert c.resources == {
-  requests: { memory: '2Gi', cpu: 1 },
+  requests: { cpu: '1', memory: '2Gi' },
   limits: { memory: '8Gi' },
 };
 assert pod.tolerations == [] && pod.terminationGracePeriodSeconds == 120;

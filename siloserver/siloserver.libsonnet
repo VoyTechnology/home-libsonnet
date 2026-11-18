@@ -63,7 +63,7 @@
       httpGet: { path: '/api/v1/health', port: 'http' },
       periodSeconds: 10,
     },
-  } + (if std.length(cfg.resources) > 0 then { resources: cfg.resources } else {}),
+  },
 
   // The pod spec without the containers and volumes. Extend it, e.g. `silo_pod_spec+:: { tolerations: [...] }`.
   silo_pod_spec:: {

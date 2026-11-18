@@ -28,5 +28,5 @@ mounted read-only at `silo.mediaPath`, an `emptyDir` until replaced. Sign-in plu
 rest of the settings are managed in Silo's admin UI and stored in its database.
 
 Replicas are fixed at one (PostgreSQL and Redis run in the pod on a ReadWriteOnce volume). The recommended
-CPU and memory are in [scaling.libsonnet](scaling.libsonnet); override `silo.resources` to change them.
+CPU and memory are in [scaling.libsonnet](scaling.libsonnet); they are mixed into `silo_container` with the `container.resources` mixins.
 Options are in [config.libsonnet](config.libsonnet), the image in [images.libsonnet](images.libsonnet).
