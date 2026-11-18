@@ -4,10 +4,11 @@
   _config+:: {
     silo+: {
       // The bundled PostgreSQL tunes itself to the memory limit, so size the limit for it too.
-      // Transcoding adds CPU load on top of this; give it more CPU or a GPU when it is used.
+      // No CPU limit: it only throttles the pod while the node has idle CPU. Transcoding is CPU heavy,
+      // so raise the request or use a GPU when it is used.
       resources: {
         requests: { memory: '2Gi', cpu: 1 },
-        limits: { memory: '6Gi', cpu: 2 },
+        limits: { memory: '6Gi' },
       },
     },
   },

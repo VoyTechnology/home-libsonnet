@@ -32,7 +32,7 @@ local vol(n) = [v for v in pod.volumes if v.name == n][0];
 assert vol('media') == { name: 'media', nfs: { server: 's1', path: '/storage' } };
 assert c.resources == {
   requests: { memory: '2Gi', cpu: 1 },
-  limits: { memory: '8Gi', cpu: 2 },
+  limits: { memory: '8Gi' },
 };
 assert pod.tolerations == [] && pod.terminationGracePeriodSeconds == 120;
 assert sts.spec.volumeClaimTemplates[0].spec.storageClassName == 'longhorn';
