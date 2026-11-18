@@ -29,16 +29,6 @@ without it, and losing or changing it makes the encrypted settings unrecoverable
 mounted read-only at `silo.mediaPath`, an `emptyDir` until replaced. Sign-in plugins (OIDC, LDAP) and the
 rest of the settings are managed in Silo's admin UI and stored in its database.
 
-## Naming
-
-Everything this library adds to the top level is `snake_case`: the rendered resources (`silo_statefulset`,
-`silo_service`) and the hidden fields (`silo_env`, `silo_volumes`, `silo_container`, `silo_pod_spec`,
-`silo_ports`). The prefix keeps the names unique when an app merges several libraries. A consumer's own
-resources follow the same rule (`silo_route`, not `siloRoute`).
-
-Kubernetes kinds are one word, however they are capitalised: `silo_statefulset`, not `silo_stateful_set`
-(likewise `daemonset`, `configmap`, `httproute`, `externalsecret`).
-
 Replicas are fixed at one (PostgreSQL and Redis run in the pod on a ReadWriteOnce volume). The recommended
 CPU and memory are in [scaling.libsonnet](scaling.libsonnet); they are mixed into `silo_container` with the `container.resources` mixins.
 Options are in [config.libsonnet](config.libsonnet), the image in [images.libsonnet](images.libsonnet).

@@ -27,3 +27,15 @@ Renovate bumps there. Config knobs stay in `config.libsonnet`.
 mise install
 just test    # renders every library as Tanka environments with rustanka
 ```
+
+## Naming
+
+New libraries name everything they add to the top level in `snake_case`: the rendered resources
+(`silo_statefulset`, `silo_service`) and the hidden fields (`silo_env`, `silo_container`). Prefix them with
+the library or component, which keeps the names unique when an app merges several libraries. A consumer's
+own resources follow the same rule (`silo_route`, not `siloRoute`).
+
+Kubernetes kinds are one word, however they are capitalised: `silo_statefulset`, not `silo_stateful_set`
+(likewise `daemonset`, `configmap`, `httproute`, `externalsecret`).
+
+Libraries that predate this rule keep their names; they are renamed only when they are changed anyway.
