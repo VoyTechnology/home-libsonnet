@@ -16,7 +16,7 @@ local m = (import '../../../main.libsonnet') {
   silo_pod_spec+:: { tolerations: [] },
 };
 
-local sts = m.silo_stateful_set;
+local sts = m.silo_statefulset;
 local pod = sts.spec.template.spec;
 local c = pod.containers[0];
 assert sts.spec.selector.matchLabels == { 'app.kubernetes.io/name': 'silo' };

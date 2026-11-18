@@ -81,7 +81,7 @@ local volumeMount = k.core.v1.volumeMount;
     terminationGracePeriodSeconds: 120,
   },
 
-  silo_stateful_set:
+  silo_statefulset:
     statefulSet.new(
       name,
       replicas=1,
