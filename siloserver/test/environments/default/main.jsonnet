@@ -2,7 +2,7 @@
 local m = (import '../../../main.libsonnet') {
   _config+:: {
     namespace: 'media',
-    silo+: { mediaPath: '/nfs', storage+: { storageClassName: 'longhorn' } },
+    silo+: { mediaPath: '/nfs', resources+: { limits+: { memory: '8Gi' } }, storage+: { storageClassName: 'longhorn' } },
   },
   silo_env+:: { SILO_NET_TCP_CONGESTION: 'off' },
   silo_volumes+:: { media: { nfs: { server: 's1', path: '/storage' } } },
@@ -30,6 +30,10 @@ assert [v.name for v in c.volumeMounts] == ['config', 'media', 'transcode', 'dow
 assert c.volumeMounts[1] == { name: 'media', mountPath: '/nfs', readOnly: true };
 local vol(n) = [v for v in pod.volumes if v.name == n][0];
 assert vol('media') == { name: 'media', nfs: { server: 's1', path: '/storage' } };
+assert c.resources == {
+  requests: { memory: '2Gi', cpu: 1 },
+  limits: { memory: '8Gi', cpu: 2 },
+};
 assert pod.tolerations == [] && pod.terminationGracePeriodSeconds == 120;
 assert sts.spec.volumeClaimTemplates[0].spec.storageClassName == 'longhorn';
 assert m.siloService.spec.selector == sts.spec.selector.matchLabels;

@@ -22,9 +22,6 @@
       puid: 1000,
       pgid: 1000,
       timezone: 'Etc/UTC',
-
-      // Container resources. Empty leaves them unset.
-      resources: {},
     },
   },
 }
