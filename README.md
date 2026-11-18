@@ -16,6 +16,7 @@ Self-contained Jsonnet libraries for my homelab, one folder each (layout modelle
 | [`minecraft`](minecraft) | Minecraft server StatefulSet, Services per port and an mc-backup sidecar, configured by mixins |
 | [`paperless`](paperless) | Paperless-ngx Deployment with a Redis sidecar and Service, configured by mixins |
 | [`donetick`](donetick) | Donetick Deployment on SQLite with ConfigMap, PVC and Service, configured by mixins |
+| [`siloserver`](siloserver) | Silo media server (omnibus image) StatefulSet and Service, configured by mixins |
 | [`homeassistant`](homeassistant) | Home Assistant StatefulSet/Service/Ingress, plus mixin-provisioned dashboards, automations, scripts and scenes |
 
 Every library keeps its images in `images.libsonnet` as `_images+::` (one `// renovate:` comment per
@@ -26,3 +27,15 @@ Renovate bumps there. Config knobs stay in `config.libsonnet`.
 mise install
 just test    # renders every library as Tanka environments with rustanka
 ```
+
+## Naming
+
+New libraries name everything they add to the top level in `snake_case`: the rendered resources
+(`silo_statefulset`, `silo_service`) and the hidden fields (`silo_env`, `silo_container`). Prefix them with
+the library or component, which keeps the names unique when an app merges several libraries. A consumer's
+own resources follow the same rule (`silo_route`, not `siloRoute`).
+
+Kubernetes kinds are one word, however they are capitalised: `silo_statefulset`, not `silo_stateful_set`
+(likewise `daemonset`, `configmap`, `httproute`, `externalsecret`).
+
+Libraries that predate this rule keep their names; they are renamed only when they are changed anyway.
