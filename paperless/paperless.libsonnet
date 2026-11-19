@@ -48,7 +48,12 @@
     env: $.envList($.paperless_env),
     ports: [{ name: 'http', containerPort: $.port }],
     readinessProbe: {
-      httpGet: { path: '/', port: $.port },
+      // Django rejects the pod IP as a Host, so send the host from the URL.
+      httpGet: {
+        path: '/',
+        port: $.port,
+        httpHeaders: [{ name: 'Host', value: std.split(cfg.url, '/')[2] }],
+      },
       initialDelaySeconds: 30,
     },
     volumeMounts: [{ name: d, mountPath: '/usr/src/paperless/' + d } for d in $.dirs],
