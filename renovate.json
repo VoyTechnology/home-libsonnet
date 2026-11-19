@@ -1,0 +1,37 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", ":semanticCommits"],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Images declared in images.libsonnet under a `// renovate:` comment",
+      "managerFilePatterns": ["/(^|/)images\\.libsonnet$/"],
+      "matchStrings": [
+        "// renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\n\\s*\\w+: '[^':]+:(?<currentValue>[^']+)'"
+      ]
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Image bumps are fixes for the library; the release workflow turns them into a patch release",
+      "matchManagers": ["custom.regex"],
+      "semanticCommitType": "fix",
+      "semanticCommitScope": "images"
+    },
+    {
+      "description": "Merge minor/patch/digest image bumps once CI passes",
+      "matchManagers": ["custom.regex"],
+      "matchUpdateTypes": ["minor", "patch", "digest", "pin"],
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true
+    },
+    {
+      "description": "Major bumps (migrations, breaking config) stay manual",
+      "matchManagers": ["custom.regex"],
+      "matchUpdateTypes": ["major"],
+      "automerge": false,
+      "semanticCommitType": "feat"
+    }
+  ]
+}
