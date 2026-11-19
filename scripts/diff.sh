@@ -12,6 +12,9 @@ trap 'git -C "${root}" worktree remove --force "${work}/base" 2>/dev/null || tru
 git -C "${root}" worktree add --detach "${work}/base" "${base}" >/dev/null
 
 render() { # <tree> <out>
+    for f in "$1"/*/jsonnetfile.json; do
+        if grep -q '"source"' "${f}"; then (cd "$(dirname "${f}")" && jb install >/dev/null); fi
+    done
     for env in "$1"/*/test/environments/*; do
         [[ -d "${env}" ]] || continue
         rel=${env#"$1"/}
