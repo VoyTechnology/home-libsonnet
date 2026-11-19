@@ -50,14 +50,14 @@ jb install github.com/VoyTechnology/home-libsonnet/paperless@paperless/v1.4.0
 ```
 
 Releases are automatic. Renovate merges minor, patch and digest image bumps once `just test` passes
-(majors stay manual PRs). On every push to `main`, [`scripts/release.sh`](scripts/release.sh) tags each
+(majors stay manual PRs). On every push to `main`, [`.github/scripts/release.sh`](.github/scripts/release.sh) tags each
 library that changed since its last tag, choosing the bump from conventional commits touching its
 directory: `type!:` or `BREAKING CHANGE` is major, `feat` is minor, anything else (including image bumps)
 is patch. Before 1.0.0 breaking changes bump the minor and everything else the patch. Run
-`scripts/release.sh` without arguments to preview.
+`.github/scripts/release.sh` without arguments to preview.
 
 ## Previewing changes
 
 Every PR gets a comment (updated in place) showing how each library's sample Tanka environments
 (`*/test/environments/*`) render differently from `main`. Run it locally with
-`RTK="$(mise which rustanka)" scripts/diff.sh [base-ref]`.
+`RTK="$(mise which rustanka)" .github/scripts/diff.sh [base-ref]`.

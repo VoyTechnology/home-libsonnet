@@ -18,10 +18,10 @@ jobs:
       - name: Render sample environments at base and head
         run: |
           git fetch origin "${{ github.base_ref }}"
-          RTK="$(mise which rustanka)" scripts/diff.sh "origin/${{ github.base_ref }}" > diff.md
+          RTK="$(mise which rustanka)" .github/scripts/diff.sh "origin/${{ github.base_ref }}" > diff.md
           # GitHub comments cap at 65536 characters.
           if [ "$(wc -c < diff.md)" -gt 60000 ]; then
-            head -c 60000 diff.md > diff.trunc && printf '\n\n_Truncated; run `scripts/diff.sh` locally for the full diff._\n' >> diff.trunc && mv diff.trunc diff.md
+            head -c 60000 diff.md > diff.trunc && printf '\n\n_Truncated; run `.github/scripts/diff.sh` locally for the full diff._\n' >> diff.trunc && mv diff.trunc diff.md
           fi
       - name: Post sticky comment
         # Fork PRs get a read-only token; the job summary below still has the report.

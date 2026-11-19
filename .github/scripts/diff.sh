@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Renders every library's sample Tanka environments at a base ref and at the working tree, and prints
-# a markdown report of what changes. Usage: scripts/diff.sh [base-ref]   (default: origin/main)
+# a markdown report of what changes. Usage: .github/scripts/diff.sh [base-ref]   (default: origin/main)
 set -euo pipefail
 
 base=${1:-origin/main}
