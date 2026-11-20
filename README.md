@@ -28,6 +28,20 @@ mise install
 just test    # renders every library as Tanka environments with rustanka
 ```
 
+## Kubernetes objects
+
+Built-in Kubernetes objects are built with [`k8s-libsonnet`](https://github.com/jsonnet-libs/k8s-libsonnet)
+(`local k = import 'k.libsonnet'`) rather than written out by hand. Each library declares the dependency in
+its `jsonnetfile.json` (pinned to a commit, Kubernetes 1.35) and ships a `lib/k.libsonnet` that the sample
+environments use. That file is the Tanka convention: when you use a library, supply your own `lib/k.libsonnet`
+(for instance the same `import 'github.com/jsonnet-libs/k8s-libsonnet/<version>/main.libsonnet'`) to choose
+the Kubernetes version. Objects the library does not cover, such as the CRDs of other operators, are still
+written by hand.
+
+Selectors are immutable, so `deployment.new` and friends are followed by an explicit `withMatchLabels` and
+`template.metadata.withLabels`: the constructors would otherwise add a `name` label. The container mixin
+fields (`*_container`) stay plain objects, because consumers extend them with `+:`.
+
 ## Naming
 
 New libraries name everything they add to the top level in `snake_case`: the rendered resources
