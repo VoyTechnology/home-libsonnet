@@ -1,3 +1,5 @@
+local k = import 'k.libsonnet';
+
 // OpenThread Border Router (ghcr.io/ownbee/hass-otbr-docker) as a single-replica StatefulSet on the host
 // network with a Thread radio passed through, plus a Service for its REST API and web UI. Customise it by
 // mixing into the hidden fields: `otbr_env`, `otbr_container`, `volumes`, `pod_spec`.
@@ -47,44 +49,38 @@
     nodeSelector: { 'kubernetes.io/hostname': cfg.nodeName },
   },
 
-  otbrStatefulSet: {
-    apiVersion: 'apps/v1',
-    kind: 'StatefulSet',
-    metadata: { name: name, labels: labels },
-    spec: {
-      serviceName: name,
-      replicas: 1,
-      selector: { matchLabels: selector },
-      // The Thread network credentials live on the volume.
-      persistentVolumeClaimRetentionPolicy: { whenDeleted: 'Retain', whenScaled: 'Retain' },
-      template: {
-        metadata: { labels: labels },
-        spec: $.pod_spec {
-          containers: [$.otbr_container],
-          volumes: [{ name: n } + $.volumes[n] for n in std.objectFields($.volumes)],
-        },
-      },
-      volumeClaimTemplates: [{
-        metadata: { name: 'data' },
-        spec: {
-          accessModes: ['ReadWriteOnce'],
-          resources: { requests: { storage: cfg.dataStorageSize } },
-        } + (if cfg.dataStorageClass != null then { storageClassName: cfg.dataStorageClass } else {}),
-      }],
-    },
-  },
-
-  otbrService: {
-    apiVersion: 'v1',
-    kind: 'Service',
-    metadata: { name: name, labels: labels },
-    spec: {
-      type: 'ClusterIP',
-      ports: [
-        { name: 'rest-api', port: cfg.restPort, targetPort: cfg.restPort, protocol: 'TCP' },
-        { name: 'web', port: cfg.webPort, targetPort: cfg.webPort, protocol: 'TCP' },
+  otbrStatefulSet:
+    local s = k.apps.v1.statefulSet;
+    local pvc = k.core.v1.persistentVolumeClaim;
+    // The pod spec mixin goes first so the library's containers and volumes always win.
+    { spec+: { template+: { spec+: $.pod_spec } } }
+    + s.new(
+      name,
+      1,
+      [$.otbr_container],
+      [
+        pvc.metadata.withName('data')
+        + pvc.spec.withAccessModes(['ReadWriteOnce'])
+        + pvc.spec.resources.withRequests({ storage: cfg.dataStorageSize })
+        + (if cfg.dataStorageClass != null then pvc.spec.withStorageClassName(cfg.dataStorageClass) else {}),
       ],
-      selector: { app: 'otbr' },
-    },
-  },
+    )
+    + s.metadata.withLabels(labels)
+    + s.spec.withServiceName(name)
+    // new() would add a `name` label; the selector is immutable and must stay as it was.
+    + s.spec.selector.withMatchLabels(selector)
+    + s.spec.template.metadata.withLabels(labels)
+    // The Thread network credentials live on the volume.
+    + s.spec.persistentVolumeClaimRetentionPolicy.withWhenDeleted('Retain') + s.spec.persistentVolumeClaimRetentionPolicy.withWhenScaled('Retain')
+    + s.spec.template.spec.withVolumes([{ name: n } + $.volumes[n] for n in std.objectFields($.volumes)]),
+
+  otbrService:
+    local svc = k.core.v1.service;
+    local port = k.core.v1.servicePort;
+    svc.new(name, { app: 'otbr' }, [
+      port.withName('rest-api') + port.withPort(cfg.restPort) + port.withTargetPort(cfg.restPort) + port.withProtocol('TCP'),
+      port.withName('web') + port.withPort(cfg.webPort) + port.withTargetPort(cfg.webPort) + port.withProtocol('TCP'),
+    ])
+    + svc.metadata.withLabels(labels)
+    + svc.spec.withType('ClusterIP'),
 }
