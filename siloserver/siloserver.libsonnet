@@ -2,7 +2,7 @@
 // PostgreSQL and Redis run inside the container, so there is one volume and nothing else to deploy.
 // Customise it with mixins on the hidden fields: `silo_env`, `silo_volumes`, `silo_container`,
 // `silo_pod_spec`.
-local k = import 'github.com/jsonnet-libs/k8s-libsonnet/1.35/main.libsonnet';
+local k = import 'k.libsonnet';
 local container = k.core.v1.container;
 local containerPort = k.core.v1.containerPort;
 local envVar = k.core.v1.envVar;
