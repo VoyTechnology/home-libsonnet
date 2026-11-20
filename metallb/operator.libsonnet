@@ -1,3 +1,5 @@
+local k = import 'k.libsonnet';
+
 // MetalLB, modelled on the upstream Helm chart's rendering (chart 0.15.2): controller Deployment,
 // speaker DaemonSet (with the FRR sidecars the chart ships), RBAC, webhook and the vendored CRDs
 // (see generate.sh). Object names, labels and selectors are the chart's, so it can take over from
@@ -13,11 +15,26 @@
     'app.kubernetes.io/managed-by': 'Tanka',
   },
 
-  metallbNamespace: if cfg.createNamespace then {
-    apiVersion: 'v1',
-    kind: 'Namespace',
-    metadata: { name: ns },
-  } else {},
+  local rbac = k.rbac.v1,
+  // Labels of the pods of a component; also the pod selector, which is immutable.
+  local selector(component) = {
+    'app.kubernetes.io/name': 'metallb',
+    'app.kubernetes.io/instance': 'metallb',
+    'app.kubernetes.io/component': component,
+  },
+  // The labels (and the component, if any), and the namespace unless the object is cluster-scoped,
+  // for an object of the type `t`.
+  local meta(t, component=null, namespaced=true) =
+    t.metadata.withLabels(labels)
+    + (if component != null then t.metadata.withLabelsMixin({ 'app.kubernetes.io/component': component }) else {})
+    + (if namespaced then t.metadata.withNamespace(ns) else {}),
+  local rule(apiGroups, resources, verbs, resourceNames=null) =
+    rbac.policyRule.withApiGroups(apiGroups)
+    + rbac.policyRule.withResources(resources)
+    + rbac.policyRule.withVerbs(verbs)
+    + (if resourceNames != null then rbac.policyRule.withResourceNames(resourceNames) else {}),
+
+  metallbNamespace: if cfg.createNamespace then k.core.v1.namespace.new(ns) else {},
 
   metallbCrds: if cfg.installCRDs then import 'crds/main.libsonnet' else {},
 
@@ -212,45 +229,16 @@
     ],
   },
 
-  metallbControllerServiceAccount: {
-    apiVersion: 'v1',
-    kind: 'ServiceAccount',
-    metadata: {
-      name: 'metallb-controller',
-      namespace: ns,
-      labels: labels { 'app.kubernetes.io/component': 'controller' },
-    },
-  },
+  metallbControllerServiceAccount:
+    k.core.v1.serviceAccount.new('metallb-controller') + meta(k.core.v1.serviceAccount, 'controller'),
 
-  metallbSpeakerServiceAccount: {
-    apiVersion: 'v1',
-    kind: 'ServiceAccount',
-    metadata: {
-      name: 'metallb-speaker',
-      namespace: ns,
-      labels: labels { 'app.kubernetes.io/component': 'speaker' },
-    },
-  },
+  metallbSpeakerServiceAccount:
+    k.core.v1.serviceAccount.new('metallb-speaker') + meta(k.core.v1.serviceAccount, 'speaker'),
 
-  metallbWebhookCertSecret: {
-    apiVersion: 'v1',
-    kind: 'Secret',
-    metadata: {
-      name: 'metallb-webhook-cert',
-      namespace: ns,
-      labels: labels,
-    },
-  },
+  metallbWebhookCertSecret: k.core.v1.secret.new('metallb-webhook-cert', {}) + meta(k.core.v1.secret),
 
-  metallbExcludeL2ConfigMap: {
-    apiVersion: 'v1',
-    kind: 'ConfigMap',
-    metadata: {
-      name: 'metallb-excludel2',
-      namespace: ns,
-      labels: labels,
-    },
-    data: {
+  metallbExcludeL2ConfigMap:
+    k.core.v1.configMap.new('metallb-excludel2', {
       'excludel2.yaml': |||
         announcedInterfacesToExclude:
         - ^docker.*
@@ -267,18 +255,11 @@
         - ^cni.*
         - ^nodelocaldns.*
       |||,
-    },
-  },
+    })
+    + meta(k.core.v1.configMap),
 
-  metallbFrrStartupConfigMap: {
-    apiVersion: 'v1',
-    kind: 'ConfigMap',
-    metadata: {
-      name: 'metallb-frr-startup',
-      namespace: ns,
-      labels: labels { 'app.kubernetes.io/component': 'speaker' },
-    },
-    data: {
+  metallbFrrStartupConfigMap:
+    k.core.v1.configMap.new('metallb-frr-startup', {
       daemons: |||
         # This file tells the frr package which daemons to start.
         #
@@ -371,645 +352,347 @@
         line vty
         log file /etc/frr/frr.log informational
       |||,
-    },
-  },
+    })
+    + meta(k.core.v1.configMap, 'speaker'),
 
-  metallbControllerClusterRole: {
-    apiVersion: 'rbac.authorization.k8s.io/v1',
-    kind: 'ClusterRole',
-    metadata: {
-      name: 'metallb:controller',
-      labels: labels,
-    },
-    rules: [
+  metallbControllerClusterRole:
+    rbac.clusterRole.new('metallb:controller')
+    + meta(rbac.clusterRole, namespaced=false)
+    + rbac.clusterRole.withRules([
+      rule([''], ['services', 'namespaces'], ['get', 'list', 'watch']),
+      rule([''], ['nodes'], ['list']),
+      rule([''], ['services/status'], ['update']),
+      rule([''], ['events'], ['create', 'patch']),
+      rule(['admissionregistration.k8s.io'], ['validatingwebhookconfigurations'], ['create', 'delete', 'get', 'list', 'patch', 'update', 'watch'], ['metallb-webhook-configuration']),
+      rule(['admissionregistration.k8s.io'], ['validatingwebhookconfigurations'], ['list', 'watch']),
+      rule(['apiextensions.k8s.io'], ['customresourcedefinitions'], ['create', 'delete', 'get', 'list', 'patch', 'update', 'watch'], ['bfdprofiles.metallb.io', 'bgpadvertisements.metallb.io', 'bgppeers.metallb.io', 'ipaddresspools.metallb.io', 'l2advertisements.metallb.io', 'communities.metallb.io']),
+      rule(['apiextensions.k8s.io'], ['customresourcedefinitions'], ['list', 'watch']),
+    ]),
+
+  metallbSpeakerClusterRole:
+    rbac.clusterRole.new('metallb:speaker')
+    + meta(rbac.clusterRole, namespaced=false)
+    + rbac.clusterRole.withRules([
+      rule([''], ['services', 'endpoints', 'nodes', 'namespaces'], ['get', 'list', 'watch']),
+      rule(['discovery.k8s.io'], ['endpointslices'], ['get', 'list', 'watch']),
+      rule([''], ['events'], ['create', 'patch']),
+      rule(['metallb.io'], ['servicel2statuses', 'servicel2statuses/status'], ['*']),
+    ]),
+
+  metallbControllerClusterRoleBinding:
+    rbac.clusterRoleBinding.new('metallb:controller')
+    + meta(rbac.clusterRoleBinding, namespaced=false)
+    + rbac.clusterRoleBinding.bindRole($.metallbControllerClusterRole)
+    + rbac.clusterRoleBinding.withSubjects([rbac.subject.fromServiceAccount($.metallbControllerServiceAccount)]),
+
+  metallbSpeakerClusterRoleBinding:
+    rbac.clusterRoleBinding.new('metallb:speaker')
+    + meta(rbac.clusterRoleBinding, namespaced=false)
+    + rbac.clusterRoleBinding.bindRole($.metallbSpeakerClusterRole)
+    + rbac.clusterRoleBinding.withSubjects([rbac.subject.fromServiceAccount($.metallbSpeakerServiceAccount)]),
+
+  metallbPodListerRole:
+    rbac.role.new('metallb-pod-lister')
+    + meta(rbac.role)
+    + rbac.role.withRules([
+      rule([''], ['pods'], ['list', 'get']),
+      rule([''], ['secrets'], ['get', 'list', 'watch']),
+      rule([''], ['configmaps'], ['get', 'list', 'watch']),
+      rule(['metallb.io'], ['bfdprofiles'], ['get', 'list', 'watch']),
+      rule(['metallb.io'], ['bgppeers'], ['get', 'list', 'watch']),
+      rule(['metallb.io'], ['l2advertisements'], ['get', 'list', 'watch']),
+      rule(['metallb.io'], ['bgpadvertisements'], ['get', 'list', 'watch']),
+      rule(['metallb.io'], ['ipaddresspools'], ['get', 'list', 'watch']),
+      rule(['metallb.io'], ['communities'], ['get', 'list', 'watch']),
+      rule(['metallb.io'], ['servicebgpstatuses', 'servicebgpstatuses/status'], ['*']),
+    ]),
+
+  metallbControllerRole:
+    rbac.role.new('metallb-controller')
+    + meta(rbac.role)
+    + rbac.role.withRules([
+      rule([''], ['secrets'], ['create', 'get', 'list', 'watch']),
+      rule([''], ['secrets'], ['list'], ['metallb-memberlist']),
+      rule(['apps'], ['deployments'], ['get'], ['metallb-controller']),
+      rule([''], ['secrets'], ['create', 'delete', 'get', 'list', 'patch', 'update', 'watch']),
+      rule(['metallb.io'], ['ipaddresspools'], ['get', 'list', 'watch']),
+      rule(['metallb.io'], ['ipaddresspools/status'], ['update']),
+      rule(['metallb.io'], ['bgppeers'], ['get', 'list']),
+      rule(['metallb.io'], ['bgpadvertisements'], ['get', 'list']),
+      rule(['metallb.io'], ['l2advertisements'], ['get', 'list']),
+      rule(['metallb.io'], ['communities'], ['get', 'list', 'watch']),
+      rule(['metallb.io'], ['bfdprofiles'], ['get', 'list', 'watch']),
+    ]),
+
+  metallbPodListerRoleBinding:
+    rbac.roleBinding.new('metallb-pod-lister')
+    + meta(rbac.roleBinding)
+    + rbac.roleBinding.bindRole($.metallbPodListerRole)
+    // As in the chart, without a namespace.
+    + rbac.roleBinding.withSubjects([rbac.subject.withKind('ServiceAccount') + rbac.subject.withName('metallb-speaker')]),
+
+  metallbControllerRoleBinding:
+    rbac.roleBinding.new('metallb-controller')
+    + meta(rbac.roleBinding)
+    + rbac.roleBinding.bindRole($.metallbControllerRole)
+    // As in the chart, without a namespace.
+    + rbac.roleBinding.withSubjects([rbac.subject.withKind('ServiceAccount') + rbac.subject.withName('metallb-controller')]),
+
+  metallbWebhookService:
+    local svc = k.core.v1.service;
+    svc.new('metallb-webhook-service', selector('controller'), [k.core.v1.servicePort.withPort(443) + k.core.v1.servicePort.withTargetPort(9443)])
+    + meta(svc),
+
+  metallbSpeakerDaemonSet:
+    local d = k.apps.v1.daemonSet;
+    local pod = d.spec.template.spec;
+    d.new('metallb-speaker', [])
+    + meta(d, 'speaker')
+    // new() would add a `name` label; the selector is immutable and must stay as it was.
+    + d.spec.selector.withMatchLabels(selector('speaker'))
+    + d.spec.template.metadata.withLabels(selector('speaker'))
+    + d.spec.updateStrategy.withType('RollingUpdate')
+    + pod.withServiceAccountName('metallb-speaker')
+    + pod.withTerminationGracePeriodSeconds(0)
+    + pod.withHostNetwork(true)
+    + pod.withVolumes([
       {
-        apiGroups: [''],
-        resources: ['services', 'namespaces'],
-        verbs: ['get', 'list', 'watch'],
+        name: 'memberlist',
+        secret: {
+          secretName: 'metallb-memberlist',
+          defaultMode: 420,
+        },
       },
       {
-        apiGroups: [''],
-        resources: ['nodes'],
-        verbs: ['list'],
+        name: 'metallb-excludel2',
+        configMap: {
+          defaultMode: 256,
+          name: 'metallb-excludel2',
+        },
       },
       {
-        apiGroups: [''],
-        resources: ['services/status'],
-        verbs: ['update'],
+        name: 'frr-sockets',
+        emptyDir: {},
       },
       {
-        apiGroups: [''],
-        resources: ['events'],
-        verbs: ['create', 'patch'],
+        name: 'frr-startup',
+        configMap: {
+          name: 'metallb-frr-startup',
+        },
       },
       {
-        apiGroups: ['admissionregistration.k8s.io'],
-        resources: ['validatingwebhookconfigurations'],
-        resourceNames: ['metallb-webhook-configuration'],
-        verbs: ['create', 'delete', 'get', 'list', 'patch', 'update', 'watch'],
+        name: 'frr-conf',
+        emptyDir: {},
       },
       {
-        apiGroups: ['admissionregistration.k8s.io'],
-        resources: ['validatingwebhookconfigurations'],
-        verbs: ['list', 'watch'],
+        name: 'reloader',
+        emptyDir: {},
       },
       {
-        apiGroups: ['apiextensions.k8s.io'],
-        resources: ['customresourcedefinitions'],
-        resourceNames: [
-          'bfdprofiles.metallb.io',
-          'bgpadvertisements.metallb.io',
-          'bgppeers.metallb.io',
-          'ipaddresspools.metallb.io',
-          'l2advertisements.metallb.io',
-          'communities.metallb.io',
+        name: 'metrics',
+        emptyDir: {},
+      },
+    ])
+    + pod.withInitContainers([
+      {
+        name: 'cp-frr-files',
+        image: $._images.frr,
+        securityContext: {
+          runAsUser: 100,
+          runAsGroup: 101,
+        },
+        command: ['/bin/sh', '-c', 'cp -rLf /tmp/frr/* /etc/frr/'],
+        volumeMounts: [
+          {
+            name: 'frr-startup',
+            mountPath: '/tmp/frr',
+          },
+          {
+            name: 'frr-conf',
+            mountPath: '/etc/frr',
+          },
         ],
-        verbs: ['create', 'delete', 'get', 'list', 'patch', 'update', 'watch'],
       },
       {
-        apiGroups: ['apiextensions.k8s.io'],
-        resources: ['customresourcedefinitions'],
-        verbs: ['list', 'watch'],
-      },
-    ],
-  },
-
-  metallbSpeakerClusterRole: {
-    apiVersion: 'rbac.authorization.k8s.io/v1',
-    kind: 'ClusterRole',
-    metadata: {
-      name: 'metallb:speaker',
-      labels: labels,
-    },
-    rules: [
-      {
-        apiGroups: [''],
-        resources: ['services', 'endpoints', 'nodes', 'namespaces'],
-        verbs: ['get', 'list', 'watch'],
+        name: 'cp-reloader',
+        image: $._images.speaker,
+        command: ['/cp-tool', '/frr-reloader.sh', '/etc/frr_reloader/frr-reloader.sh'],
+        volumeMounts: [
+          {
+            name: 'reloader',
+            mountPath: '/etc/frr_reloader',
+          },
+        ],
       },
       {
-        apiGroups: ['discovery.k8s.io'],
-        resources: ['endpointslices'],
-        verbs: ['get', 'list', 'watch'],
+        name: 'cp-metrics',
+        image: $._images.speaker,
+        command: ['/cp-tool', '/frr-metrics', '/etc/frr_metrics/frr-metrics'],
+        volumeMounts: [
+          {
+            name: 'metrics',
+            mountPath: '/etc/frr_metrics',
+          },
+        ],
       },
+    ])
+    + pod.withShareProcessNamespace(true)
+    + pod.withContainers([
+      $.metallb_speaker_container,
       {
-        apiGroups: [''],
-        resources: ['events'],
-        verbs: ['create', 'patch'],
-      },
-      {
-        apiGroups: ['metallb.io'],
-        resources: ['servicel2statuses', 'servicel2statuses/status'],
-        verbs: ['*'],
-      },
-    ],
-  },
-
-  metallbControllerClusterRoleBinding: {
-    apiVersion: 'rbac.authorization.k8s.io/v1',
-    kind: 'ClusterRoleBinding',
-    metadata: {
-      name: 'metallb:controller',
-      labels: labels,
-    },
-    subjects: [
-      {
-        kind: 'ServiceAccount',
-        name: 'metallb-controller',
-        namespace: ns,
-      },
-    ],
-    roleRef: {
-      apiGroup: 'rbac.authorization.k8s.io',
-      kind: 'ClusterRole',
-      name: 'metallb:controller',
-    },
-  },
-
-  metallbSpeakerClusterRoleBinding: {
-    apiVersion: 'rbac.authorization.k8s.io/v1',
-    kind: 'ClusterRoleBinding',
-    metadata: {
-      name: 'metallb:speaker',
-      labels: labels,
-    },
-    subjects: [
-      {
-        kind: 'ServiceAccount',
-        name: 'metallb-speaker',
-        namespace: ns,
-      },
-    ],
-    roleRef: {
-      apiGroup: 'rbac.authorization.k8s.io',
-      kind: 'ClusterRole',
-      name: 'metallb:speaker',
-    },
-  },
-
-  metallbPodListerRole: {
-    apiVersion: 'rbac.authorization.k8s.io/v1',
-    kind: 'Role',
-    metadata: {
-      name: 'metallb-pod-lister',
-      namespace: ns,
-      labels: labels,
-    },
-    rules: [
-      {
-        apiGroups: [''],
-        resources: ['pods'],
-        verbs: ['list', 'get'],
-      },
-      {
-        apiGroups: [''],
-        resources: ['secrets'],
-        verbs: ['get', 'list', 'watch'],
-      },
-      {
-        apiGroups: [''],
-        resources: ['configmaps'],
-        verbs: ['get', 'list', 'watch'],
-      },
-      {
-        apiGroups: ['metallb.io'],
-        resources: ['bfdprofiles'],
-        verbs: ['get', 'list', 'watch'],
-      },
-      {
-        apiGroups: ['metallb.io'],
-        resources: ['bgppeers'],
-        verbs: ['get', 'list', 'watch'],
-      },
-      {
-        apiGroups: ['metallb.io'],
-        resources: ['l2advertisements'],
-        verbs: ['get', 'list', 'watch'],
-      },
-      {
-        apiGroups: ['metallb.io'],
-        resources: ['bgpadvertisements'],
-        verbs: ['get', 'list', 'watch'],
-      },
-      {
-        apiGroups: ['metallb.io'],
-        resources: ['ipaddresspools'],
-        verbs: ['get', 'list', 'watch'],
-      },
-      {
-        apiGroups: ['metallb.io'],
-        resources: ['communities'],
-        verbs: ['get', 'list', 'watch'],
-      },
-      {
-        apiGroups: ['metallb.io'],
-        resources: ['servicebgpstatuses', 'servicebgpstatuses/status'],
-        verbs: ['*'],
-      },
-    ],
-  },
-
-  metallbControllerRole: {
-    apiVersion: 'rbac.authorization.k8s.io/v1',
-    kind: 'Role',
-    metadata: {
-      name: 'metallb-controller',
-      namespace: ns,
-      labels: labels,
-    },
-    rules: [
-      {
-        apiGroups: [''],
-        resources: ['secrets'],
-        verbs: ['create', 'get', 'list', 'watch'],
-      },
-      {
-        apiGroups: [''],
-        resources: ['secrets'],
-        resourceNames: ['metallb-memberlist'],
-        verbs: ['list'],
-      },
-      {
-        apiGroups: ['apps'],
-        resources: ['deployments'],
-        resourceNames: ['metallb-controller'],
-        verbs: ['get'],
-      },
-      {
-        apiGroups: [''],
-        resources: ['secrets'],
-        verbs: ['create', 'delete', 'get', 'list', 'patch', 'update', 'watch'],
-      },
-      {
-        apiGroups: ['metallb.io'],
-        resources: ['ipaddresspools'],
-        verbs: ['get', 'list', 'watch'],
-      },
-      {
-        apiGroups: ['metallb.io'],
-        resources: ['ipaddresspools/status'],
-        verbs: ['update'],
-      },
-      {
-        apiGroups: ['metallb.io'],
-        resources: ['bgppeers'],
-        verbs: ['get', 'list'],
-      },
-      {
-        apiGroups: ['metallb.io'],
-        resources: ['bgpadvertisements'],
-        verbs: ['get', 'list'],
-      },
-      {
-        apiGroups: ['metallb.io'],
-        resources: ['l2advertisements'],
-        verbs: ['get', 'list'],
-      },
-      {
-        apiGroups: ['metallb.io'],
-        resources: ['communities'],
-        verbs: ['get', 'list', 'watch'],
-      },
-      {
-        apiGroups: ['metallb.io'],
-        resources: ['bfdprofiles'],
-        verbs: ['get', 'list', 'watch'],
-      },
-    ],
-  },
-
-  metallbPodListerRoleBinding: {
-    apiVersion: 'rbac.authorization.k8s.io/v1',
-    kind: 'RoleBinding',
-    metadata: {
-      name: 'metallb-pod-lister',
-      namespace: ns,
-      labels: labels,
-    },
-    roleRef: {
-      apiGroup: 'rbac.authorization.k8s.io',
-      kind: 'Role',
-      name: 'metallb-pod-lister',
-    },
-    subjects: [
-      {
-        kind: 'ServiceAccount',
-        name: 'metallb-speaker',
-      },
-    ],
-  },
-
-  metallbControllerRoleBinding: {
-    apiVersion: 'rbac.authorization.k8s.io/v1',
-    kind: 'RoleBinding',
-    metadata: {
-      name: 'metallb-controller',
-      namespace: ns,
-      labels: labels,
-    },
-    roleRef: {
-      apiGroup: 'rbac.authorization.k8s.io',
-      kind: 'Role',
-      name: 'metallb-controller',
-    },
-    subjects: [
-      {
-        kind: 'ServiceAccount',
-        name: 'metallb-controller',
-      },
-    ],
-  },
-
-  metallbWebhookService: {
-    apiVersion: 'v1',
-    kind: 'Service',
-    metadata: {
-      name: 'metallb-webhook-service',
-      namespace: ns,
-      labels: labels,
-    },
-    spec: {
-      ports: [
-        {
-          port: 443,
-          targetPort: 9443,
-        },
-      ],
-      selector: {
-        'app.kubernetes.io/name': 'metallb',
-        'app.kubernetes.io/instance': 'metallb',
-        'app.kubernetes.io/component': 'controller',
-      },
-    },
-  },
-
-  metallbSpeakerDaemonSet: {
-    apiVersion: 'apps/v1',
-    kind: 'DaemonSet',
-    metadata: {
-      name: 'metallb-speaker',
-      namespace: ns,
-      labels: labels { 'app.kubernetes.io/component': 'speaker' },
-    },
-    spec: {
-      updateStrategy: {
-        type: 'RollingUpdate',
-      },
-      selector: {
-        matchLabels: {
-          'app.kubernetes.io/name': 'metallb',
-          'app.kubernetes.io/instance': 'metallb',
-          'app.kubernetes.io/component': 'speaker',
-        },
-      },
-      template: {
-        metadata: {
-          labels: {
-            'app.kubernetes.io/name': 'metallb',
-            'app.kubernetes.io/instance': 'metallb',
-            'app.kubernetes.io/component': 'speaker',
+        name: 'frr',
+        securityContext: {
+          capabilities: {
+            add: ['NET_ADMIN', 'NET_RAW', 'SYS_ADMIN', 'NET_BIND_SERVICE'],
           },
         },
-        spec: {
-          serviceAccountName: 'metallb-speaker',
-          terminationGracePeriodSeconds: 0,
-          hostNetwork: true,
-          volumes: [
-            {
-              name: 'memberlist',
-              secret: {
-                secretName: 'metallb-memberlist',
-                defaultMode: 420,
-              },
-            },
-            {
-              name: 'metallb-excludel2',
-              configMap: {
-                defaultMode: 256,
-                name: 'metallb-excludel2',
-              },
-            },
-            {
-              name: 'frr-sockets',
-              emptyDir: {},
-            },
-            {
-              name: 'frr-startup',
-              configMap: {
-                name: 'metallb-frr-startup',
-              },
-            },
-            {
-              name: 'frr-conf',
-              emptyDir: {},
-            },
-            {
-              name: 'reloader',
-              emptyDir: {},
-            },
-            {
-              name: 'metrics',
-              emptyDir: {},
-            },
-          ],
-          initContainers: [
-            {
-              name: 'cp-frr-files',
-              image: $._images.frr,
-              securityContext: {
-                runAsUser: 100,
-                runAsGroup: 101,
-              },
-              command: ['/bin/sh', '-c', 'cp -rLf /tmp/frr/* /etc/frr/'],
-              volumeMounts: [
-                {
-                  name: 'frr-startup',
-                  mountPath: '/tmp/frr',
-                },
-                {
-                  name: 'frr-conf',
-                  mountPath: '/etc/frr',
-                },
-              ],
-            },
-            {
-              name: 'cp-reloader',
-              image: $._images.speaker,
-              command: ['/cp-tool', '/frr-reloader.sh', '/etc/frr_reloader/frr-reloader.sh'],
-              volumeMounts: [
-                {
-                  name: 'reloader',
-                  mountPath: '/etc/frr_reloader',
-                },
-              ],
-            },
-            {
-              name: 'cp-metrics',
-              image: $._images.speaker,
-              command: ['/cp-tool', '/frr-metrics', '/etc/frr_metrics/frr-metrics'],
-              volumeMounts: [
-                {
-                  name: 'metrics',
-                  mountPath: '/etc/frr_metrics',
-                },
-              ],
-            },
-          ],
-          shareProcessNamespace: true,
-          containers: [
-            $.metallb_speaker_container,
-            {
-              name: 'frr',
-              securityContext: {
-                capabilities: {
-                  add: ['NET_ADMIN', 'NET_RAW', 'SYS_ADMIN', 'NET_BIND_SERVICE'],
-                },
-              },
-              image: $._images.frr,
-              env: [
-                {
-                  name: 'TINI_SUBREAPER',
-                  value: 'true',
-                },
-              ],
-              volumeMounts: [
-                {
-                  name: 'frr-sockets',
-                  mountPath: '/var/run/frr',
-                },
-                {
-                  name: 'frr-conf',
-                  mountPath: '/etc/frr',
-                },
-              ],
-              command: [
-                '/bin/sh',
-                '-c',
-                |||
-                  /sbin/tini -- /usr/lib/frr/docker-start &
-                  attempts=0
-                  until [[ -f /etc/frr/frr.log || $attempts -eq 60 ]]; do
-                    sleep 1
-                    attempts=$(( $attempts + 1 ))
-                  done
-                  tail -f /etc/frr/frr.log
-                |||,
-              ],
-              livenessProbe: {
-                httpGet: {
-                  path: 'livez',
-                  port: 7473,
-                },
-                initialDelaySeconds: 10,
-                periodSeconds: 10,
-                timeoutSeconds: 1,
-                successThreshold: 1,
-                failureThreshold: 3,
-              },
-              startupProbe: {
-                httpGet: {
-                  path: '/livez',
-                  port: 7473,
-                },
-                failureThreshold: 30,
-                periodSeconds: 5,
-              },
-            },
-            {
-              name: 'reloader',
-              image: $._images.frr,
-              command: ['/etc/frr_reloader/frr-reloader.sh'],
-              volumeMounts: [
-                {
-                  name: 'frr-sockets',
-                  mountPath: '/var/run/frr',
-                },
-                {
-                  name: 'frr-conf',
-                  mountPath: '/etc/frr',
-                },
-                {
-                  name: 'reloader',
-                  mountPath: '/etc/frr_reloader',
-                },
-              ],
-            },
-            {
-              name: 'frr-metrics',
-              image: $._images.frr,
-              command: ['/etc/frr_metrics/frr-metrics'],
-              args: ['--metrics-port=7473'],
-              env: [
-                {
-                  name: 'VTYSH_HISTFILE',
-                  value: '/dev/null',
-                },
-              ],
-              ports: [
-                {
-                  containerPort: 7473,
-                  name: 'monitoring',
-                },
-              ],
-              volumeMounts: [
-                {
-                  name: 'frr-sockets',
-                  mountPath: '/var/run/frr',
-                },
-                {
-                  name: 'frr-conf',
-                  mountPath: '/etc/frr',
-                },
-                {
-                  name: 'metrics',
-                  mountPath: '/etc/frr_metrics',
-                },
-              ],
-            },
-          ],
-          nodeSelector: {
-            'kubernetes.io/os': 'linux',
+        image: $._images.frr,
+        env: [
+          {
+            name: 'TINI_SUBREAPER',
+            value: 'true',
           },
-          tolerations: [
-            {
-              key: 'node-role.kubernetes.io/master',
-              effect: 'NoSchedule',
-              operator: 'Exists',
-            },
-            {
-              key: 'node-role.kubernetes.io/control-plane',
-              effect: 'NoSchedule',
-              operator: 'Exists',
-            },
-          ],
+        ],
+        volumeMounts: [
+          {
+            name: 'frr-sockets',
+            mountPath: '/var/run/frr',
+          },
+          {
+            name: 'frr-conf',
+            mountPath: '/etc/frr',
+          },
+        ],
+        command: [
+          '/bin/sh',
+          '-c',
+          |||
+            /sbin/tini -- /usr/lib/frr/docker-start &
+            attempts=0
+            until [[ -f /etc/frr/frr.log || $attempts -eq 60 ]]; do
+              sleep 1
+              attempts=$(( $attempts + 1 ))
+            done
+            tail -f /etc/frr/frr.log
+          |||,
+        ],
+        livenessProbe: {
+          httpGet: {
+            path: 'livez',
+            port: 7473,
+          },
+          initialDelaySeconds: 10,
+          periodSeconds: 10,
+          timeoutSeconds: 1,
+          successThreshold: 1,
+          failureThreshold: 3,
+        },
+        startupProbe: {
+          httpGet: {
+            path: '/livez',
+            port: 7473,
+          },
+          failureThreshold: 30,
+          periodSeconds: 5,
         },
       },
-    },
-  },
+      {
+        name: 'reloader',
+        image: $._images.frr,
+        command: ['/etc/frr_reloader/frr-reloader.sh'],
+        volumeMounts: [
+          {
+            name: 'frr-sockets',
+            mountPath: '/var/run/frr',
+          },
+          {
+            name: 'frr-conf',
+            mountPath: '/etc/frr',
+          },
+          {
+            name: 'reloader',
+            mountPath: '/etc/frr_reloader',
+          },
+        ],
+      },
+      {
+        name: 'frr-metrics',
+        image: $._images.frr,
+        command: ['/etc/frr_metrics/frr-metrics'],
+        args: ['--metrics-port=7473'],
+        env: [
+          {
+            name: 'VTYSH_HISTFILE',
+            value: '/dev/null',
+          },
+        ],
+        ports: [
+          {
+            containerPort: 7473,
+            name: 'monitoring',
+          },
+        ],
+        volumeMounts: [
+          {
+            name: 'frr-sockets',
+            mountPath: '/var/run/frr',
+          },
+          {
+            name: 'frr-conf',
+            mountPath: '/etc/frr',
+          },
+          {
+            name: 'metrics',
+            mountPath: '/etc/frr_metrics',
+          },
+        ],
+      },
+    ])
+    + pod.withNodeSelector({ 'kubernetes.io/os': 'linux' })
+    + pod.withTolerations([
+      {
+        key: 'node-role.kubernetes.io/master',
+        effect: 'NoSchedule',
+        operator: 'Exists',
+      },
+      {
+        key: 'node-role.kubernetes.io/control-plane',
+        effect: 'NoSchedule',
+        operator: 'Exists',
+      },
+    ]),
 
-  metallbControllerDeployment: {
-    apiVersion: 'apps/v1',
-    kind: 'Deployment',
-    metadata: {
-      name: 'metallb-controller',
-      namespace: ns,
-      labels: labels { 'app.kubernetes.io/component': 'controller' },
-    },
-    spec: {
-      strategy: {
-        type: 'RollingUpdate',
-      },
-      selector: {
-        matchLabels: {
-          'app.kubernetes.io/name': 'metallb',
-          'app.kubernetes.io/instance': 'metallb',
-          'app.kubernetes.io/component': 'controller',
+  metallbControllerDeployment:
+    local d = k.apps.v1.deployment;
+    local pod = d.spec.template.spec;
+    // No replicas, as in the chart.
+    d.new('metallb-controller', null, [$.metallb_controller_container])
+    + meta(d, 'controller')
+    // new() would add a `name` label; the selector is immutable and must stay as it was.
+    + d.spec.selector.withMatchLabels(selector('controller'))
+    + d.spec.template.metadata.withLabels(selector('controller'))
+    + d.spec.strategy.withType('RollingUpdate')
+    + pod.withServiceAccountName('metallb-controller')
+    + pod.withTerminationGracePeriodSeconds(0)
+    + pod.securityContext.withFsGroup(65534)
+    + pod.securityContext.withRunAsNonRoot(true)
+    + pod.securityContext.withRunAsUser(65534)
+    + pod.withNodeSelector({ 'kubernetes.io/os': 'linux' })
+    + pod.withVolumes([
+      {
+        name: 'cert',
+        secret: {
+          defaultMode: 420,
+          secretName: 'metallb-webhook-cert',
         },
       },
-      template: {
-        metadata: {
-          labels: {
-            'app.kubernetes.io/name': 'metallb',
-            'app.kubernetes.io/instance': 'metallb',
-            'app.kubernetes.io/component': 'controller',
-          },
-        },
-        spec: {
-          serviceAccountName: 'metallb-controller',
-          terminationGracePeriodSeconds: 0,
-          securityContext: {
-            fsGroup: 65534,
-            runAsNonRoot: true,
-            runAsUser: 65534,
-          },
-          containers: [
-            $.metallb_controller_container,
-          ],
-          nodeSelector: {
-            'kubernetes.io/os': 'linux',
-          },
-          volumes: [
-            {
-              name: 'cert',
-              secret: {
-                defaultMode: 420,
-                secretName: 'metallb-webhook-cert',
-              },
-            },
-          ],
-        },
-      },
-    },
-  },
+    ]),
 
-  metallbWebhook: {
-    apiVersion: 'admissionregistration.k8s.io/v1',
-    kind: 'ValidatingWebhookConfiguration',
-    metadata: {
-      name: 'metallb-webhook-configuration',
-      labels: labels,
-    },
-    webhooks: [
+  metallbWebhook:
+    local w = k.admissionregistration.v1.validatingWebhookConfiguration;
+    w.new('metallb-webhook-configuration')
+    + meta(w, namespaced=false)
+    + w.withWebhooks([
       {
         admissionReviewVersions: ['v1'],
         clientConfig: {
@@ -1136,6 +819,5 @@
         ],
         sideEffects: 'None',
       },
-    ],
-  },
+    ]),
 }
