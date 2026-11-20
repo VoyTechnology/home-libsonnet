@@ -1,3 +1,5 @@
+local k = import 'k.libsonnet';
+
 // Donetick (https://donetick.com) as a single-replica Deployment on SQLite, a ConfigMap with its
 // selfhosted.yaml, a PVC and a Service. Customise it with mixins on the hidden fields: `donetick_config`,
 // `donetick_env`, `volumes`, `donetick_container`, `pod_spec`.
@@ -85,60 +87,40 @@
   // The pod spec without the containers and volumes. Extend it, e.g. `pod_spec+:: { tolerations: [...] }`.
   pod_spec:: {},
 
-  donetickNamespace: if cfg.createNamespace then {
-    apiVersion: 'v1',
-    kind: 'Namespace',
-    metadata: { name: cfg.namespace },
-  } else {},
+  donetickNamespace: if cfg.createNamespace then k.core.v1.namespace.new(cfg.namespace) else {},
 
-  donetickConfigMap: {
-    apiVersion: 'v1',
-    kind: 'ConfigMap',
-    metadata: meta(name + '-config'),
-    data: { 'selfhosted.yaml': std.manifestYamlDoc($.donetick_config) },
-  },
+  donetickConfigMap:
+    k.core.v1.configMap.new(name + '-config', { 'selfhosted.yaml': std.manifestYamlDoc($.donetick_config) })
+    + k.core.v1.configMap.metadata.withNamespace(cfg.namespace)
+    + k.core.v1.configMap.metadata.withLabels(selector),
 
-  donetickPvc: {
-    apiVersion: 'v1',
-    kind: 'PersistentVolumeClaim',
-    metadata: meta(cfg.storage.claimName),
-    spec: {
-      accessModes: ['ReadWriteOnce'],
-      resources: { requests: { storage: cfg.storage.size } },
-    } + (if cfg.storage.storageClassName != null then { storageClassName: cfg.storage.storageClassName } else {}),
-  },
+  donetickPvc:
+    k.core.v1.persistentVolumeClaim.new(cfg.storage.claimName)
+    + k.core.v1.persistentVolumeClaim.metadata.withNamespace(cfg.namespace)
+    + k.core.v1.persistentVolumeClaim.metadata.withLabels(selector)
+    + k.core.v1.persistentVolumeClaim.spec.withAccessModes(['ReadWriteOnce'])
+    + k.core.v1.persistentVolumeClaim.spec.resources.withRequests({ storage: cfg.storage.size })
+    + (if cfg.storage.storageClassName != null then k.core.v1.persistentVolumeClaim.spec.withStorageClassName(cfg.storage.storageClassName) else {}),
 
-  donetickDeployment: {
-    apiVersion: 'apps/v1',
-    kind: 'Deployment',
-    metadata: meta(name),
-    spec: {
-      replicas: cfg.replicas,
-      selector: { matchLabels: selector },
-      // SQLite on a ReadWriteOnce volume: never run two pods at once.
-      strategy: { type: 'Recreate' },
-      template: {
-        metadata: {
-          labels: selector,
-          // Restart the pod when the rendered config changes.
-          annotations: { 'checksum/config': std.md5($.donetickConfigMap.data['selfhosted.yaml']) },
-        },
-        spec: $.pod_spec {
-          containers: [$.donetick_container],
-          volumes: [{ name: n } + $.volumes[n] for n in std.objectFields($.volumes)],
-        },
-      },
-    },
-  },
+  donetickDeployment:
+    local d = k.apps.v1.deployment;
+    // The pod spec mixin goes first so the library's containers and volumes always win.
+    { spec+: { template+: { spec+: $.pod_spec } } }
+    + d.new(name, cfg.replicas, [$.donetick_container])
+    + d.metadata.withNamespace(cfg.namespace)
+    + d.metadata.withLabels(selector)
+    // new() would add a `name` label; the selector is immutable and must stay as it was.
+    + d.spec.selector.withMatchLabels(selector)
+    + d.spec.template.metadata.withLabels(selector)
+    // Restart the pod when the rendered config changes.
+    + d.spec.template.metadata.withAnnotations({ 'checksum/config': std.md5($.donetickConfigMap.data['selfhosted.yaml']) })
+    // SQLite on a ReadWriteOnce volume: never run two pods at once.
+    + d.spec.strategy.withType('Recreate')
+    + d.spec.template.spec.withVolumes([{ name: n } + $.volumes[n] for n in std.objectFields($.volumes)]),
 
-  donetickService: {
-    apiVersion: 'v1',
-    kind: 'Service',
-    metadata: meta(name),
-    spec: {
-      type: 'ClusterIP',
-      ports: [{ name: 'http', port: $.port, targetPort: 'http', protocol: 'TCP' }],
-      selector: selector,
-    },
-  },
+  donetickService:
+    k.core.v1.service.new(name, selector, [k.core.v1.servicePort.withName('http') + k.core.v1.servicePort.withPort($.port) + k.core.v1.servicePort.withTargetPort('http') + k.core.v1.servicePort.withProtocol('TCP')])
+    + k.core.v1.service.metadata.withNamespace(cfg.namespace)
+    + k.core.v1.service.metadata.withLabels(selector)
+    + k.core.v1.service.spec.withType('ClusterIP'),
 }
