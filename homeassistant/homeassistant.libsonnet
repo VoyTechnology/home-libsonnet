@@ -7,6 +7,8 @@
 // how the StatefulSet adopts the existing volume instead of creating a new one.
 // The claim is deliberately not a rendered object (Argo never prunes it) and the
 // retention policy below stops Kubernetes deleting it with the StatefulSet.
+local k = import 'k.libsonnet';
+
 {
   local this = self,
   local cfg = $._config,
@@ -19,26 +21,19 @@
   },
   // Metadata labels. Kept apart from `selector`: the selector is immutable and must
   // never grow, while these may change freely.
-  local labels = selector + { 'app.kubernetes.io/managed-by': 'Tanka' },
+  local labels = selector { 'app.kubernetes.io/managed-by': 'Tanka' },
   // Host devices (name -> host path) mounted at the same path inside the container.
   local devices = $._config.devices,
 
-  haServiceAccount: {
-    apiVersion: 'v1',
-    kind: 'ServiceAccount',
-    metadata: { name: name, labels: labels },
-  },
+  haServiceAccount:
+    k.core.v1.serviceAccount.new(name) + k.core.v1.serviceAccount.metadata.withLabels(labels),
 
-  haService: {
-    apiVersion: 'v1',
-    kind: 'Service',
-    metadata: { name: name, labels: labels },
-    spec: {
-      type: 'ClusterIP',
-      ports: [{ name: 'http', port: cfg.port, targetPort: 'http', protocol: 'TCP' }],
-      selector: selector,
-    },
-  },
+  haService:
+    local svc = k.core.v1.service;
+    local port = k.core.v1.servicePort;
+    svc.new(name, selector, [port.withName('http') + port.withPort(cfg.port) + port.withTargetPort('http') + port.withProtocol('TCP')])
+    + svc.metadata.withLabels(labels)
+    + svc.spec.withType('ClusterIP'),
 
   // Scrapes Home Assistant's Prometheus integration (`prometheus:` in configuration.yaml)
   // at /api/prometheus. HA requires auth on every request, so set `metricsTokenSecret`
@@ -84,45 +79,38 @@
       + this.haProvisioningMounts,
   },
 
-  haStatefulSet: {
-    apiVersion: 'apps/v1',
-    kind: 'StatefulSet',
-    metadata: { name: name, labels: labels },
-    spec: {
-      serviceName: name,
-      replicas: 1,
-      selector: { matchLabels: selector },
-      // Never let Kubernetes garbage-collect the /config claim (this is the
-      // default; spelled out because the data on it is not reproducible).
-      persistentVolumeClaimRetentionPolicy: { whenDeleted: 'Retain', whenScaled: 'Retain' },
-      template: {
-        metadata: {
-          labels: labels,
-        } + (if cfg.configuration != null then {
-          // The configuration.yaml mount is a subPath, which never updates in place.
-          annotations: { 'checksum/configuration': std.md5(this.haConfiguration) },
-        } else {}),
-        spec: {
-          hostNetwork: true,
-          serviceAccountName: name,
-          containers: [this.haContainer],
-          volumes:
-            [{ name: d, hostPath: { path: devices[d] } } for d in std.objectFields(devices)]
-            + this.haProvisioningVolumes,
-        } + (if $._config.nodeName != null then {
-          nodeSelector: { 'kubernetes.io/hostname': $._config.nodeName },
-        } else {}),
-      },
+  haStatefulSet:
+    local s = k.apps.v1.statefulSet;
+    local pvc = k.core.v1.persistentVolumeClaim;
+    s.new(
+      name,
+      1,
+      [this.haContainer],
       // IMMUTABLE and identical to the Helm render: name + spec define the claim
       // (homeassistant-homeassistant-0) holding /config. No storageClassName: the
       // existing claim uses the cluster default.
-      volumeClaimTemplates: [{
-        metadata: { name: name },
-        spec: {
-          accessModes: ['ReadWriteOnce'],
-          resources: { requests: { storage: cfg.storageSize } },
-        },
-      }],
-    },
-  },
+      [
+        pvc.metadata.withName(name)
+        + pvc.spec.withAccessModes(['ReadWriteOnce'])
+        + pvc.spec.resources.withRequests({ storage: cfg.storageSize }),
+      ],
+    )
+    + s.metadata.withLabels(labels)
+    + s.spec.withServiceName(name)
+    // new() would add a `name` label; the selector is immutable and must stay as it was.
+    + s.spec.selector.withMatchLabels(selector)
+    // Never let Kubernetes garbage-collect the /config claim (this is the
+    // default; spelled out because the data on it is not reproducible).
+    + s.spec.persistentVolumeClaimRetentionPolicy.withWhenDeleted('Retain')
+    + s.spec.persistentVolumeClaimRetentionPolicy.withWhenScaled('Retain')
+    + s.spec.template.metadata.withLabels(labels)
+    // The configuration.yaml mount is a subPath, which never updates in place.
+    + (if cfg.configuration != null then s.spec.template.metadata.withAnnotations({ 'checksum/configuration': std.md5(this.haConfiguration) }) else {})
+    + s.spec.template.spec.withHostNetwork(true)
+    + s.spec.template.spec.withServiceAccountName(name)
+    + s.spec.template.spec.withVolumes(
+      [{ name: d, hostPath: { path: devices[d] } } for d in std.objectFields(devices)]
+      + this.haProvisioningVolumes
+    )
+    + (if $._config.nodeName != null then s.spec.template.spec.withNodeSelector({ 'kubernetes.io/hostname': $._config.nodeName }) else {}),
 }
