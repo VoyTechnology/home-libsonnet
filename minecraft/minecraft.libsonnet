@@ -1,3 +1,5 @@
+local k = import 'k.libsonnet';
+
 // A Minecraft server (https://github.com/itzg/docker-minecraft-server) as a single-replica StatefulSet,
 // with one Service per port. Customise it with mixins on the hidden fields: `minecraft_env`, `ports`,
 // `volumes`, `minecraft_container`, `pod_spec`.
@@ -12,7 +14,8 @@
     'app.kubernetes.io/instance': name,
     'app.kubernetes.io/managed-by': 'Tanka',
   },
-  local meta(n) = { name: n, namespace: cfg.namespace, labels: labels },
+  // The labels and namespace for an object of the type `t`, e.g. `k.apps.v1.statefulSet`.
+  local meta(t) = t.metadata.withNamespace(cfg.namespace) + t.metadata.withLabels(labels),
 
   // Environment as a map of variable to value; an object value is a `valueFrom`. Used for both containers.
   envList(env):: [
@@ -84,51 +87,44 @@
     },
   },
 
-  minecraftNamespace: if cfg.createNamespace then {
-    apiVersion: 'v1',
-    kind: 'Namespace',
-    metadata: { name: cfg.namespace },
-  } else {},
+  minecraftNamespace: if cfg.createNamespace then k.core.v1.namespace.new(cfg.namespace) else {},
 
-  minecraftStatefulSet: {
-    apiVersion: 'apps/v1',
-    kind: 'StatefulSet',
-    metadata: meta(name),
-    spec: {
-      serviceName: name,
-      replicas: cfg.replicas,
-      selector: { matchLabels: selector },
-      template: {
-        metadata: { labels: labels },
-        spec: $.pod_spec {
-          containers: [$.minecraft_container] + (if cfg.backup then [$.backup_container] else []),
-          volumes: [{ name: n } + $.volumes[n] for n in std.objectFields($.volumes)],
-        },
-      },
-      volumeClaimTemplates: [{
-        metadata: { name: 'datadir' },
-        spec: {
-          accessModes: ['ReadWriteOnce'],
-          resources: { requests: { storage: cfg.dataSize } },
-        } + (if cfg.storageClassName != null then { storageClassName: cfg.storageClassName } else {}),
-      }],
-    },
-  },
+  minecraftStatefulSet:
+    local s = k.apps.v1.statefulSet;
+    local pvc = k.core.v1.persistentVolumeClaim;
+    // The pod spec mixin goes first so the library's containers and volumes always win.
+    { spec+: { template+: { spec+: $.pod_spec } } }
+    + s.new(
+      name,
+      cfg.replicas,
+      [$.minecraft_container] + (if cfg.backup then [$.backup_container] else []),
+      [
+        pvc.metadata.withName('datadir')
+        + pvc.spec.withAccessModes(['ReadWriteOnce'])
+        + pvc.spec.resources.withRequests({ storage: cfg.dataSize })
+        + (if cfg.storageClassName != null then pvc.spec.withStorageClassName(cfg.storageClassName) else {}),
+      ],
+    )
+    + meta(s)
+    + s.spec.withServiceName(name)
+    // new() would add a `name` label; the selector is immutable and must stay as it was.
+    + s.spec.selector.withMatchLabels(selector)
+    + s.spec.template.metadata.withLabels(labels)
+    + s.spec.template.spec.withVolumes([{ name: n } + $.volumes[n] for n in std.objectFields($.volumes)]),
 
   // One Service per port that has a serviceType, named after the port.
   minecraftServices: {
-    [n]: {
-      local p = $.ports[n],
-      local svcName = if n == 'minecraft' then name else name + '-' + n,
-      apiVersion: 'v1',
-      kind: 'Service',
-      metadata: meta(svcName),
-      spec: {
-        type: p.serviceType,
-        ports: [{ name: n, port: p.port, targetPort: n, protocol: p.protocol }],
-        selector: selector,
-      },
-    }
+    [n]:
+      local p = $.ports[n];
+      local svc = k.core.v1.service;
+      local port = k.core.v1.servicePort;
+      svc.new(
+        if n == 'minecraft' then name else name + '-' + n,
+        selector,
+        [port.withName(n) + port.withPort(p.port) + port.withTargetPort(n) + port.withProtocol(p.protocol)],
+      )
+      + meta(svc)
+      + svc.spec.withType(p.serviceType)
     for n in std.objectFields($.ports)
     if std.objectHas($.ports[n], 'serviceType')
   },
