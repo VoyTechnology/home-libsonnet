@@ -1,3 +1,5 @@
+local k = import 'k.libsonnet';
+
 // pocket-id-operator (https://github.com/aclerici38/pocket-id-operator), modelled on the
 // release's install.yaml: the manager Deployment, its RBAC and metrics Service, plus the
 // vendored CRDs (see generate.sh). Object names are the release's. Only the namespace is
@@ -18,76 +20,64 @@
   local crud = ['create', 'delete', 'get', 'list', 'patch', 'update', 'watch'],
   local pocketidResources = ['pocketidapis', 'pocketidinstances', 'pocketidoidcclients', 'pocketidusergroups', 'pocketidusers'],
 
+  local rbac = k.rbac.v1,
+  // The labels and namespace for a namespaced object of the type `t`; cluster-scoped objects pass `false`.
+  local meta(t, namespaced=true) =
+    t.metadata.withLabels(labels) + (if namespaced then t.metadata.withNamespace(ns) else {}),
+  local rule(apiGroups, resources, verbs) =
+    rbac.policyRule.withApiGroups(apiGroups) + rbac.policyRule.withResources(resources) + rbac.policyRule.withVerbs(verbs),
+
   pidNamespace:
-    if cfg.createNamespace then {
-      apiVersion: 'v1',
-      kind: 'Namespace',
-      metadata: {
-        name: ns,
-        // Never prune the namespace, and so its volumes, when the app is removed.
-        annotations: { 'kustomize.toolkit.fluxcd.io/prune': 'disabled' },
-      },
-    } else {},
+    if cfg.createNamespace then
+      k.core.v1.namespace.new(ns)
+      // Never prune the namespace, and so its volumes, when the app is removed.
+      + k.core.v1.namespace.metadata.withAnnotations({ 'kustomize.toolkit.fluxcd.io/prune': 'disabled' })
+    else {},
 
   pidCrds: if cfg.installCRDs then (import 'crds/main.libsonnet') else {},
 
-  pidServiceAccount: {
-    apiVersion: 'v1',
-    kind: 'ServiceAccount',
-    metadata: { name: name, namespace: ns, labels: labels },
-  },
+  pidServiceAccount: k.core.v1.serviceAccount.new(name) + meta(k.core.v1.serviceAccount),
 
-  pidLeaderElectionRole: {
-    apiVersion: 'rbac.authorization.k8s.io/v1',
-    kind: 'Role',
-    metadata: { name: name + '-leader-election-role', namespace: ns, labels: labels },
-    rules: [
-      { apiGroups: [''], resources: ['configmaps'], verbs: ['get', 'list', 'watch', 'create', 'update', 'patch', 'delete'] },
-      { apiGroups: ['coordination.k8s.io'], resources: ['leases'], verbs: ['get', 'list', 'watch', 'create', 'update', 'patch', 'delete'] },
-      { apiGroups: [''], resources: ['events'], verbs: ['create', 'patch'] },
-    ],
-  },
+  pidLeaderElectionRole:
+    rbac.role.new(name + '-leader-election-role')
+    + meta(rbac.role)
+    + rbac.role.withRules([
+      rule([''], ['configmaps'], ['get', 'list', 'watch', 'create', 'update', 'patch', 'delete']),
+      rule(['coordination.k8s.io'], ['leases'], ['get', 'list', 'watch', 'create', 'update', 'patch', 'delete']),
+      rule([''], ['events'], ['create', 'patch']),
+    ]),
 
-  pidLeaderElectionRoleBinding: {
-    apiVersion: 'rbac.authorization.k8s.io/v1',
-    kind: 'RoleBinding',
-    metadata: { name: name + '-leader-election-rolebinding', namespace: ns, labels: labels },
-    roleRef: { apiGroup: 'rbac.authorization.k8s.io', kind: 'Role', name: $.pidLeaderElectionRole.metadata.name },
-    subjects: [{ kind: 'ServiceAccount', name: name, namespace: ns }],
-  },
+  pidLeaderElectionRoleBinding:
+    rbac.roleBinding.new(name + '-leader-election-rolebinding')
+    + meta(rbac.roleBinding)
+    + rbac.roleBinding.bindRole($.pidLeaderElectionRole)
+    + rbac.roleBinding.withSubjects([rbac.subject.fromServiceAccount($.pidServiceAccount)]),
 
-  pidManagerClusterRole: {
-    apiVersion: 'rbac.authorization.k8s.io/v1',
-    kind: 'ClusterRole',
-    metadata: { name: name + '-manager-role', labels: labels },
-    rules: [
-      { apiGroups: [''], resources: ['configmaps'], verbs: ['get'] },
-      { apiGroups: [''], resources: ['persistentvolumeclaims', 'secrets', 'services'], verbs: crud },
-      { apiGroups: ['apps'], resources: ['deployments', 'statefulsets'], verbs: crud },
-      { apiGroups: ['gateway.networking.k8s.io'], resources: ['httproutes'], verbs: crud },
-      { apiGroups: ['pocketid.internal'], resources: pocketidResources, verbs: crud },
-      { apiGroups: ['pocketid.internal'], resources: [r + '/finalizers' for r in pocketidResources], verbs: ['update'] },
-      { apiGroups: ['pocketid.internal'], resources: [r + '/status' for r in pocketidResources], verbs: ['get', 'patch', 'update'] },
-    ],
-  },
+  pidManagerClusterRole:
+    rbac.clusterRole.new(name + '-manager-role')
+    + meta(rbac.clusterRole, false)
+    + rbac.clusterRole.withRules([
+      rule([''], ['configmaps'], ['get']),
+      rule([''], ['persistentvolumeclaims', 'secrets', 'services'], crud),
+      rule(['apps'], ['deployments', 'statefulsets'], crud),
+      rule(['gateway.networking.k8s.io'], ['httproutes'], crud),
+      rule(['pocketid.internal'], pocketidResources, crud),
+      rule(['pocketid.internal'], [r + '/finalizers' for r in pocketidResources], ['update']),
+      rule(['pocketid.internal'], [r + '/status' for r in pocketidResources], ['get', 'patch', 'update']),
+    ]),
 
-  pidManagerClusterRoleBinding: {
-    apiVersion: 'rbac.authorization.k8s.io/v1',
-    kind: 'ClusterRoleBinding',
-    metadata: { name: name + '-manager-rolebinding', labels: labels },
-    roleRef: { apiGroup: 'rbac.authorization.k8s.io', kind: 'ClusterRole', name: $.pidManagerClusterRole.metadata.name },
-    subjects: [{ kind: 'ServiceAccount', name: name, namespace: ns }],
-  },
+  pidManagerClusterRoleBinding:
+    rbac.clusterRoleBinding.new(name + '-manager-rolebinding')
+    + meta(rbac.clusterRoleBinding, false)
+    + rbac.clusterRoleBinding.bindRole($.pidManagerClusterRole)
+    + rbac.clusterRoleBinding.withSubjects([rbac.subject.fromServiceAccount($.pidServiceAccount)]),
 
-  pidMetricsService: {
-    apiVersion: 'v1',
-    kind: 'Service',
-    metadata: { name: name + '-metrics-service', namespace: ns, labels: labels { 'control-plane': 'controller-manager' } },
-    spec: {
-      ports: [{ name: 'http', port: 8080, protocol: 'TCP', targetPort: 8080 }],
-      selector: selector,
-    },
-  },
+  pidMetricsService:
+    local svc = k.core.v1.service;
+    local port = k.core.v1.servicePort;
+    svc.new(name + '-metrics-service', selector, [port.withName('http') + port.withPort(8080) + port.withProtocol('TCP') + port.withTargetPort(8080)])
+    + meta(svc)
+    + svc.metadata.withLabelsMixin({ 'control-plane': 'controller-manager' }),
 
   // The manager container; extend with a mixin (`args+:`, `env+:`, `resources+:`, ...).
   manager_container:: {
@@ -105,30 +95,24 @@
     },
   },
 
-  pidDeployment: {
-    apiVersion: 'apps/v1',
-    kind: 'Deployment',
-    metadata: { name: name, namespace: ns, labels: labels { 'control-plane': 'controller-manager' } },
-    spec: {
-      replicas: cfg.replicas,
-      selector: { matchLabels: selector },
-      template: {
-        metadata: {
-          annotations: { 'kubectl.kubernetes.io/default-container': 'manager' },
-          labels: selector,
-        },
-        spec: {
-                affinity: { nodeAffinity: { requiredDuringSchedulingIgnoredDuringExecution: { nodeSelectorTerms: [{ matchExpressions: [
-                  { key: 'kubernetes.io/arch', operator: 'In', values: ['amd64', 'arm64'] },
-                  { key: 'kubernetes.io/os', operator: 'In', values: ['linux'] },
-                ] }] } } },
-                containers: [$.manager_container],
-                securityContext: { runAsNonRoot: true, seccompProfile: { type: 'RuntimeDefault' } },
-                serviceAccountName: name,
-                terminationGracePeriodSeconds: 10,
-              } + (if std.length(cfg.nodeSelector) > 0 then { nodeSelector: cfg.nodeSelector } else {})
-              + (if std.length(cfg.tolerations) > 0 then { tolerations: cfg.tolerations } else {}),
-      },
-    },
-  },
+  pidDeployment:
+    local d = k.apps.v1.deployment;
+    local pod = d.spec.template.spec;
+    d.new(name, cfg.replicas, [$.manager_container])
+    + meta(d)
+    + d.metadata.withLabelsMixin({ 'control-plane': 'controller-manager' })
+    // new() would add a `name` label; the selector is immutable and must stay as it was.
+    + d.spec.selector.withMatchLabels(selector)
+    + d.spec.template.metadata.withLabels(selector)
+    + d.spec.template.metadata.withAnnotations({ 'kubectl.kubernetes.io/default-container': 'manager' })
+    + pod.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.withNodeSelectorTerms([{ matchExpressions: [
+      { key: 'kubernetes.io/arch', operator: 'In', values: ['amd64', 'arm64'] },
+      { key: 'kubernetes.io/os', operator: 'In', values: ['linux'] },
+    ] }])
+    + pod.securityContext.withRunAsNonRoot(true)
+    + pod.securityContext.seccompProfile.withType('RuntimeDefault')
+    + pod.withServiceAccountName(name)
+    + pod.withTerminationGracePeriodSeconds(10)
+    + (if std.length(cfg.nodeSelector) > 0 then pod.withNodeSelector(cfg.nodeSelector) else {})
+    + (if std.length(cfg.tolerations) > 0 then pod.withTolerations(cfg.tolerations) else {}),
 }
