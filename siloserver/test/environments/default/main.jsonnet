@@ -1,5 +1,5 @@
 // Overrides: an env var, a replaced volume, a container mixin and a pod mixin.
-local k = import 'github.com/jsonnet-libs/k8s-libsonnet/1.35/main.libsonnet';
+local k = import 'k.libsonnet';
 local container = k.core.v1.container;
 local volume = k.core.v1.volume;
 

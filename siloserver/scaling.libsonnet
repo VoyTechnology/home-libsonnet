@@ -1,7 +1,7 @@
 // Recommended CPU and memory, mixed into the container. Replicas are not scaled: there is one pod, with
 // PostgreSQL and Redis inside it on a ReadWriteOnce volume. Change it with another mixin, e.g.
 // `silo_container+:: container.resources.withLimits({ memory: '8Gi' })`.
-local container = (import 'github.com/jsonnet-libs/k8s-libsonnet/1.35/main.libsonnet').core.v1.container;
+local container = (import 'k.libsonnet').core.v1.container;
 
 {
   // The bundled PostgreSQL tunes itself to the memory limit, so size the limit for it too. There is no
