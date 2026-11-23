@@ -1,3 +1,5 @@
+local k = import 'k.libsonnet';
+
 // Paperless-ngx (https://docs.paperless-ngx.com) as a single-replica Deployment with a Redis sidecar as
 // task broker, and a Service. Customise it with mixins on the hidden fields: `paperless_env`, `dirs`,
 // `volumes`, `paperless_container`, `redis_container`, `pod_spec`.
@@ -12,7 +14,8 @@
     'app.kubernetes.io/instance': name,
     'app.kubernetes.io/managed-by': 'Tanka',
   },
-  local meta(n) = { name: n, namespace: cfg.namespace, labels: labels },
+  // The labels and namespace for an object of the type `t`, e.g. `k.apps.v1.deployment`.
+  local meta(t) = t.metadata.withNamespace(cfg.namespace) + t.metadata.withLabels(labels),
 
   // Environment as a map of variable to value; an object value is a `valueFrom`. Rendered sorted by name,
   // and `$(VAR)` references in a value only expand variables listed before it.
@@ -73,39 +76,24 @@
     enableServiceLinks: false,
   } + (if cfg.nodeName != null then { nodeSelector: { 'kubernetes.io/hostname': cfg.nodeName } } else {}),
 
-  paperlessNamespace: if cfg.createNamespace then {
-    apiVersion: 'v1',
-    kind: 'Namespace',
-    metadata: { name: cfg.namespace },
-  } else {},
+  paperlessNamespace: if cfg.createNamespace then k.core.v1.namespace.new(cfg.namespace) else {},
 
-  paperlessDeployment: {
-    apiVersion: 'apps/v1',
-    kind: 'Deployment',
-    metadata: meta(name),
-    spec: {
-      replicas: cfg.replicas,
-      selector: { matchLabels: selector },
-      // The data is shared through the node, so never run two pods at once.
-      strategy: { type: 'Recreate' },
-      template: {
-        metadata: { labels: labels },
-        spec: $.pod_spec {
-          containers: [$.paperless_container, $.redis_container],
-          volumes: [{ name: n } + $.volumes[n] for n in std.objectFields($.volumes)],
-        },
-      },
-    },
-  },
+  paperlessDeployment:
+    local d = k.apps.v1.deployment;
+    // The pod spec mixin goes first so the library's containers and volumes always win.
+    { spec+: { template+: { spec+: $.pod_spec } } }
+    + d.new(name, cfg.replicas, [$.paperless_container, $.redis_container])
+    + meta(d)
+    // new() would add a `name` label; the selector is immutable and must stay as it was.
+    + d.spec.selector.withMatchLabels(selector)
+    + d.spec.template.metadata.withLabels(labels)
+    // The data is shared through the node, so never run two pods at once.
+    + d.spec.strategy.withType('Recreate')
+    + d.spec.template.spec.withVolumes([{ name: n } + $.volumes[n] for n in std.objectFields($.volumes)]),
 
-  paperlessService: {
-    apiVersion: 'v1',
-    kind: 'Service',
-    metadata: meta(name),
-    spec: {
-      type: 'ClusterIP',
-      ports: [{ name: 'http', port: $.port, targetPort: $.port, protocol: 'TCP' }],
-      selector: selector,
-    },
-  },
+  paperlessService:
+    local port = k.core.v1.servicePort;
+    k.core.v1.service.new(name, selector, [port.withName('http') + port.withPort($.port) + port.withTargetPort($.port) + port.withProtocol('TCP')])
+    + meta(k.core.v1.service)
+    + k.core.v1.service.spec.withType('ClusterIP'),
 }
