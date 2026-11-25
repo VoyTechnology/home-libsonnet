@@ -1,3 +1,5 @@
+local k = import 'k.libsonnet';
+
 // cert-manager, modelled on the upstream Helm chart's default rendering: controller,
 // webhook and cainjector Deployments with their RBAC, Services, webhook
 // configurations and NetworkPolicies, plus the vendored CRDs (see generate.sh).
@@ -28,40 +30,37 @@
     'app.kubernetes.io/version': version,
     'app.kubernetes.io/managed-by': 'Tanka',
   },
-  local meta(name, c, namespace=null) = {
-    name: name,
-    labels: labels(c),
-  } + (if namespace != null then { namespace: namespace } else {}),
+  local rbac = k.rbac.v1,
+  // The labels, and the namespace if there is one, for an object of the type `t`.
+  local meta(t, c, namespace=null) =
+    t.metadata.withLabels(labels(c))
+    + (if namespace != null then t.metadata.withNamespace(namespace) else {}),
 
-  local role(name, c, rules, kind='ClusterRole', namespace=null, extraLabels={}) = {
-    apiVersion: 'rbac.authorization.k8s.io/v1',
-    kind: kind,
-    metadata: meta(name, c, namespace) { labels+: extraLabels },
-    rules: rules,
-  },
-  local binding(name, c, roleName, serviceAccount, kind='ClusterRole', namespace=null) = {
-    apiVersion: 'rbac.authorization.k8s.io/v1',
-    kind: kind + 'Binding',
-    metadata: meta(name, c, namespace),
-    roleRef: { apiGroup: 'rbac.authorization.k8s.io', kind: kind, name: roleName },
-    subjects: [{ kind: 'ServiceAccount', name: serviceAccount, namespace: ns }],
-  },
+  local role(name, c, rules, kind='ClusterRole', namespace=null, extraLabels={}) =
+    local t = if kind == 'Role' then rbac.role else rbac.clusterRole;
+    t.new(name) + meta(t, c, namespace) + t.metadata.withLabelsMixin(extraLabels) + t.withRules(rules),
+  local binding(name, c, roleName, serviceAccount, kind='ClusterRole', namespace=null) =
+    local t = if kind == 'Role' then rbac.roleBinding else rbac.clusterRoleBinding;
+    t.new(name)
+    + meta(t, c, namespace)
+    + t.roleRef.withApiGroup('rbac.authorization.k8s.io')
+    + t.roleRef.withKind(kind)
+    + t.roleRef.withName(roleName)
+    + t.withSubjects([rbac.subject.withKind('ServiceAccount') + rbac.subject.withName(serviceAccount) + rbac.subject.withNamespace(ns)]),
 
-  local rule(apiGroups, resources, verbs, resourceNames=null) = {
-    apiGroups: apiGroups,
-    resources: resources,
-    verbs: verbs,
-  } + (if resourceNames != null then { resourceNames: resourceNames } else {}),
+  local rule(apiGroups, resources, verbs, resourceNames=null) =
+    rbac.policyRule.withApiGroups(apiGroups)
+    + rbac.policyRule.withResources(resources)
+    + rbac.policyRule.withVerbs(verbs)
+    + (if resourceNames != null then rbac.policyRule.withResourceNames(resourceNames) else {}),
   local events = rule([''], ['events'], ['create', 'patch']),
   local readSecrets = rule([''], ['secrets'], ['get', 'list', 'watch']),
   local signers = ['issuers.cert-manager.io/*', 'clusterissuers.cert-manager.io/*'],
 
-  local serviceAccount(c) = {
-    apiVersion: 'v1',
-    kind: 'ServiceAccount',
-    metadata: meta(c.name, c, ns),
-    automountServiceAccountToken: true,
-  },
+  local serviceAccount(c) =
+    k.core.v1.serviceAccount.new(c.name)
+    + meta(k.core.v1.serviceAccount, c, ns)
+    + k.core.v1.serviceAccount.withAutomountServiceAccountToken(true),
 
   local container(key, c, args, extra) = {
     name: c.name,
@@ -76,40 +75,29 @@
     },
   } + (if std.objectHas(cfg.resources, key) then { resources: cfg.resources[key] } else {}) + extra,
 
-  local deployment(key, c, podContainer) = {
-    apiVersion: 'apps/v1',
-    kind: 'Deployment',
-    metadata: meta(c.name, c, ns),
-    spec: {
-      replicas: cfg.replicas[key],
-      selector: { matchLabels: selector(c) },
-      template: {
-        metadata: {
-          labels: labels(c),
-          annotations: {
-            'prometheus.io/path': '/metrics',
-            'prometheus.io/scrape': 'true',
-            'prometheus.io/port': '9402',
-          },
-        },
-        spec: {
-          serviceAccountName: c.name,
-          enableServiceLinks: false,
-          securityContext: { runAsNonRoot: true, seccompProfile: { type: 'RuntimeDefault' } },
-          containers: [podContainer],
-          nodeSelector: { 'kubernetes.io/os': 'linux' } + cfg.nodeSelector,
-        } + (if std.length(cfg.tolerations) > 0 then { tolerations: cfg.tolerations } else {}),
-      },
-    },
-  },
+  local deployment(key, c, podContainer) =
+    local d = k.apps.v1.deployment;
+    local pod = d.spec.template.spec;
+    d.new(c.name, cfg.replicas[key], [podContainer])
+    + meta(d, c, ns)
+    // new() would add a `name` label; the selector is immutable and must stay as it was.
+    + d.spec.selector.withMatchLabels(selector(c))
+    + d.spec.template.metadata.withLabels(labels(c))
+    + d.spec.template.metadata.withAnnotations({
+      'prometheus.io/path': '/metrics',
+      'prometheus.io/scrape': 'true',
+      'prometheus.io/port': '9402',
+    })
+    + pod.withServiceAccountName(c.name)
+    + pod.withEnableServiceLinks(false)
+    + pod.securityContext.withRunAsNonRoot(true)
+    + pod.securityContext.seccompProfile.withType('RuntimeDefault')
+    + pod.withNodeSelector({ 'kubernetes.io/os': 'linux' } + cfg.nodeSelector)
+    + (if std.length(cfg.tolerations) > 0 then pod.withTolerations(cfg.tolerations) else {}),
 
   local metricsPort = { name: 'http-metrics', containerPort: 9402, protocol: 'TCP' },
 
-  cmNamespace: if cfg.createNamespace then {
-    apiVersion: 'v1',
-    kind: 'Namespace',
-    metadata: { name: ns },
-  } else {},
+  cmNamespace: if cfg.createNamespace then k.core.v1.namespace.new(ns) else {},
 
   cmCrds: if cfg.installCRDs then import 'crds/main.libsonnet' else {},
 
@@ -142,16 +130,14 @@
 
   cmControllerDeployment: deployment('controller', components.controller, $.controller_container),
 
-  cmControllerService: {
-    apiVersion: 'v1',
-    kind: 'Service',
-    metadata: meta('cert-manager', components.controller, ns),
-    spec: {
-      type: 'ClusterIP',
-      ports: [{ name: 'tcp-prometheus-servicemonitor', port: 9402, targetPort: 'http-metrics', protocol: 'TCP' }],
-      selector: selector(components.controller),
-    },
-  },
+  cmControllerService:
+    local svc = k.core.v1.service;
+    local port = k.core.v1.servicePort;
+    svc.new('cert-manager', selector(components.controller), [
+      port.withName('tcp-prometheus-servicemonitor') + port.withPort(9402) + port.withTargetPort('http-metrics') + port.withProtocol('TCP'),
+    ])
+    + meta(svc, components.controller, ns)
+    + svc.spec.withType('ClusterIP'),
 
   cmControllerLeaderElectionRole: role('cert-manager:leaderelection', components.controller, [
     rule(['coordination.k8s.io'], ['leases'], ['get', 'update', 'patch'], ['cert-manager-controller']),
@@ -278,16 +264,14 @@
 
   cmCainjectorDeployment: deployment('cainjector', components.cainjector, $.cainjector_container),
 
-  cmCainjectorService: {
-    apiVersion: 'v1',
-    kind: 'Service',
-    metadata: meta('cert-manager-cainjector', components.cainjector, ns),
-    spec: {
-      type: 'ClusterIP',
-      ports: [{ name: 'http-metrics', port: 9402, protocol: 'TCP' }],
-      selector: selector(components.cainjector),
-    },
-  },
+  cmCainjectorService:
+    local svc = k.core.v1.service;
+    local port = k.core.v1.servicePort;
+    svc.new('cert-manager-cainjector', selector(components.cainjector), [
+      port.withName('http-metrics') + port.withPort(9402) + port.withProtocol('TCP'),
+    ])
+    + meta(svc, components.cainjector, ns)
+    + svc.spec.withType('ClusterIP'),
 
   cmCainjectorClusterRole: role('cert-manager-cainjector', components.cainjector, [
     rule(['cert-manager.io'], ['certificates'], ['get', 'list', 'watch']),
@@ -348,19 +332,15 @@
 
   cmWebhookDeployment: deployment('webhook', components.webhook, $.webhook_container),
 
-  cmWebhookService: {
-    apiVersion: 'v1',
-    kind: 'Service',
-    metadata: meta('cert-manager-webhook', components.webhook, ns),
-    spec: {
-      type: 'ClusterIP',
-      ports: [
-        { name: 'https', port: 443, targetPort: 'https', protocol: 'TCP' },
-        { name: 'metrics', port: 9402, targetPort: 'http-metrics', protocol: 'TCP' },
-      ],
-      selector: selector(components.webhook),
-    },
-  },
+  cmWebhookService:
+    local svc = k.core.v1.service;
+    local port = k.core.v1.servicePort;
+    svc.new('cert-manager-webhook', selector(components.webhook), [
+      port.withName('https') + port.withPort(443) + port.withTargetPort('https') + port.withProtocol('TCP'),
+      port.withName('metrics') + port.withPort(9402) + port.withTargetPort('http-metrics') + port.withProtocol('TCP'),
+    ])
+    + meta(svc, components.webhook, ns)
+    + svc.spec.withType('ClusterIP'),
 
   // The webhook issues its own serving certificate into this Secret.
   cmWebhookDynamicServingRole: role('cert-manager-webhook:dynamic-serving', components.webhook, [
@@ -374,13 +354,11 @@
   ]),
   cmWebhookSubjectAccessReviewsClusterRoleBinding: binding('cert-manager-webhook:subjectaccessreviews', components.webhook, 'cert-manager-webhook:subjectaccessreviews', 'cert-manager-webhook'),
 
-  local webhookConfig(kind, webhook) = {
-    apiVersion: 'admissionregistration.k8s.io/v1',
-    kind: kind,
-    metadata: meta('cert-manager-webhook', components.webhook) {
-      annotations: { 'cert-manager.io/inject-ca-from-secret': '%s/cert-manager-webhook-ca' % ns },
-    },
-    webhooks: [{
+  local webhookConfig(t, webhook) =
+    t.new('cert-manager-webhook')
+    + meta(t, components.webhook)
+    + t.metadata.withAnnotations({ 'cert-manager.io/inject-ca-from-secret': '%s/cert-manager-webhook-ca' % ns })
+    + t.withWebhooks([{
       name: 'webhook.cert-manager.io',
       admissionReviewVersions: ['v1'],
       matchPolicy: 'Equivalent',
@@ -388,16 +366,15 @@
       failurePolicy: 'Fail',
       sideEffects: 'None',
       clientConfig: { service: { name: 'cert-manager-webhook', namespace: ns, path: webhook.path } },
-    } + webhook.extra],
-  },
+    } + webhook.extra]),
 
-  cmMutatingWebhook: webhookConfig('MutatingWebhookConfiguration', {
+  cmMutatingWebhook: webhookConfig(k.admissionregistration.v1.mutatingWebhookConfiguration, {
     path: '/mutate',
     extra: {
       rules: [{ apiGroups: ['cert-manager.io'], apiVersions: ['v1'], operations: ['CREATE'], resources: ['certificaterequests'] }],
     },
   }),
-  cmValidatingWebhook: webhookConfig('ValidatingWebhookConfiguration', {
+  cmValidatingWebhook: webhookConfig(k.admissionregistration.v1.validatingWebhookConfiguration, {
     path: '/validate',
     extra: {
       namespaceSelector: { matchExpressions: [{ key: 'cert-manager.io/disable-validation', operator: 'NotIn', values: ['true'] }] },
@@ -407,12 +384,13 @@
 
   // Egress to the API server, ACME and DNS; ingress from the API server for admission.
   local anywhere = [{ ipBlock: { cidr: '0.0.0.0/0' } }, { ipBlock: { cidr: '::/0' } }],
-  local webhookPolicy(name, policyType, spec) = {
-    apiVersion: 'networking.k8s.io/v1',
-    kind: 'NetworkPolicy',
-    metadata: { name: name, namespace: ns },
-    spec: { podSelector: { matchLabels: selector(components.webhook) }, policyTypes: [policyType] } + spec,
-  },
+  local webhookPolicy(name, policyType, spec) =
+    local np = k.networking.v1.networkPolicy;
+    np.new(name)
+    + np.metadata.withNamespace(ns)
+    + np.spec.podSelector.withMatchLabels(selector(components.webhook))
+    + np.spec.withPolicyTypes([policyType])
+    + { spec+: spec },
   cmWebhookNetworkPolicies: if cfg.webhookNetworkPolicy then {
     egress: webhookPolicy('cert-manager-webhook-allow-egress', 'Egress', {
       egress: [{
