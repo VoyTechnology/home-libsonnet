@@ -1,3 +1,5 @@
+local k = import 'k.libsonnet';
+
 // Home Assistant Matter Hub (ghcr.io/riddix/home-assistant-matter-hub), which exposes Home Assistant
 // entities as Matter devices, as a single-replica StatefulSet on the host network with a Service.
 // Customise it by mixing into the hidden fields: `matterhub_env`, `matterhub_container`, `volumes`,
@@ -51,40 +53,37 @@
          nodeSelector: { 'kubernetes.io/hostname': cfg.nodeName },
        } else {}),
 
-  matterhubStatefulSet: {
-    apiVersion: 'apps/v1',
-    kind: 'StatefulSet',
-    metadata: { name: name, labels: labels },
-    spec: {
-      serviceName: name,
-      replicas: 1,
-      selector: { matchLabels: selector },
-      persistentVolumeClaimRetentionPolicy: { whenDeleted: 'Retain', whenScaled: 'Retain' },
-      template: {
-        metadata: { labels: labels },
-        spec: $.pod_spec {
-          containers: [$.matterhub_container],
-          volumes: [{ name: n } + $.volumes[n] for n in std.objectFields($.volumes)],
-        },
-      },
-      volumeClaimTemplates: [{
-        metadata: { name: 'data', labels: labels },
-        spec: {
-          accessModes: ['ReadWriteOnce'],
-          resources: { requests: { storage: cfg.dataStorageSize } },
-        } + (if cfg.dataStorageClass != null then { storageClassName: cfg.dataStorageClass } else {}),
-      }],
-    },
-  },
+  matterhubStatefulSet:
+    local s = k.apps.v1.statefulSet;
+    local pvc = k.core.v1.persistentVolumeClaim;
+    // The pod spec mixin goes first so the library's containers and volumes always win.
+    { spec+: { template+: { spec+: $.pod_spec } } }
+    + s.new(
+      name,
+      1,
+      [$.matterhub_container],
+      [
+        pvc.metadata.withName('data')
+        + pvc.metadata.withLabels(labels)
+        + pvc.spec.withAccessModes(['ReadWriteOnce'])
+        + pvc.spec.resources.withRequests({ storage: cfg.dataStorageSize })
+        + (if cfg.dataStorageClass != null then pvc.spec.withStorageClassName(cfg.dataStorageClass) else {}),
+      ],
+    )
+    + s.metadata.withLabels(labels)
+    + s.spec.withServiceName(name)
+    // new() would add a `name` label; the selector is immutable and must stay as it was.
+    + s.spec.selector.withMatchLabels(selector)
+    + s.spec.template.metadata.withLabels(labels)
+    // The configuration lives on the volume.
+    + s.spec.persistentVolumeClaimRetentionPolicy.withWhenDeleted('Retain')
+    + s.spec.persistentVolumeClaimRetentionPolicy.withWhenScaled('Retain')
+    + s.spec.template.spec.withVolumes([{ name: n } + $.volumes[n] for n in std.objectFields($.volumes)]),
 
-  matterhubService: {
-    apiVersion: 'v1',
-    kind: 'Service',
-    metadata: { name: name, labels: labels },
-    spec: {
-      type: 'ClusterIP',
-      ports: [{ name: 'http', port: cfg.port, targetPort: 'http', protocol: 'TCP' }],
-      selector: selector,
-    },
-  },
+  matterhubService:
+    local svc = k.core.v1.service;
+    local port = k.core.v1.servicePort;
+    svc.new(name, selector, [port.withName('http') + port.withPort(cfg.port) + port.withTargetPort('http') + port.withProtocol('TCP')])
+    + svc.metadata.withLabels(labels)
+    + svc.spec.withType('ClusterIP'),
 }
