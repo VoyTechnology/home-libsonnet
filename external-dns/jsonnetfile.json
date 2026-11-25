@@ -1,5 +1,15 @@
 {
   "version": 1,
-  "dependencies": [],
+  "dependencies": [
+    {
+      "source": {
+        "git": {
+          "remote": "https://github.com/jsonnet-libs/k8s-libsonnet.git",
+          "subdir": "1.35"
+        }
+      },
+      "version": "f66023fcddc92e89c3e81bd49c1f528a984505ef"
+    }
+  ],
   "legacyImports": true
 }
