@@ -1,3 +1,5 @@
+local k = import 'k.libsonnet';
+
 // Garage (https://garagehq.deuxfleurs.fr), a small S3-compatible object store, as a single replica:
 // one StatefulSet with a metadata and a data volume, the S3/admin Service and its config.
 // The secrets (RPC secret, admin token) come from a Secret as environment variables, never the config.
@@ -16,23 +18,13 @@
     'app.kubernetes.io/version': std.lstripChars(version, 'v'),
     'app.kubernetes.io/managed-by': 'Tanka',
   },
-  local meta(component=null) = {
-    name: name,
-    namespace: ns,
-    labels: labels,
-  },
+  // The labels and namespace for an object of the type `t`, e.g. `k.apps.v1.statefulSet`.
+  local meta(t) = t.metadata.withNamespace(ns) + t.metadata.withLabels(labels),
 
-  garageNamespace: if cfg.createNamespace then {
-    apiVersion: 'v1',
-    kind: 'Namespace',
-    metadata: { name: ns },
-  } else {},
+  garageNamespace: if cfg.createNamespace then k.core.v1.namespace.new(ns) else {},
 
-  garageConfigMap: {
-    apiVersion: 'v1',
-    kind: 'ConfigMap',
-    metadata: meta(),
-    data: {
+  garageConfigMap:
+    k.core.v1.configMap.new(name, {
       'garage.toml': |||
         metadata_dir = "/var/lib/garage/meta"
         data_dir = "/var/lib/garage/data"
@@ -48,23 +40,19 @@
         [admin]
         api_bind_addr = "[::]:3903"
       ||| % { replication: cfg.replicationFactor, region: cfg.region },
-    },
-  },
+    })
+    + meta(k.core.v1.configMap),
 
-  garageService: {
-    apiVersion: 'v1',
-    kind: 'Service',
-    metadata: meta(),
-    spec: {
-      type: 'ClusterIP',
-      ports: [
-        { name: 's3', port: 3900, targetPort: 's3', protocol: 'TCP' },
-        { name: 'rpc', port: 3901, targetPort: 'rpc', protocol: 'TCP' },
-        { name: 'admin', port: 3903, targetPort: 'admin', protocol: 'TCP' },
-      ],
-      selector: selector,
-    },
-  },
+  garageService:
+    local svc = k.core.v1.service;
+    local port = k.core.v1.servicePort;
+    svc.new(name, selector, [
+      port.withName('s3') + port.withPort(3900) + port.withTargetPort('s3') + port.withProtocol('TCP'),
+      port.withName('rpc') + port.withPort(3901) + port.withTargetPort('rpc') + port.withProtocol('TCP'),
+      port.withName('admin') + port.withPort(3903) + port.withTargetPort('admin') + port.withProtocol('TCP'),
+    ])
+    + meta(svc)
+    + svc.spec.withType('ClusterIP'),
 
   // The container. Extend it with a mixin, e.g. `garage_container+:: { env+: [...] }`.
   garage_container:: {
@@ -91,33 +79,21 @@
     ],
   } + (if std.length(cfg.resources) > 0 then { resources: cfg.resources } else {}),
 
-  garageStatefulSet: {
-    local claim(volume, size) = {
-      metadata: { name: volume },
-      spec: {
-        accessModes: ['ReadWriteOnce'],
-        resources: { requests: { storage: size } },
-      } + (if cfg.storageClassName != null then { storageClassName: cfg.storageClassName } else {}),
-    },
-    apiVersion: 'apps/v1',
-    kind: 'StatefulSet',
-    metadata: meta(),
-    spec: {
-      serviceName: name,
-      replicas: 1,
-      selector: { matchLabels: selector },
-      template: {
-        metadata: {
-          labels: selector,
-          // Garage serves Prometheus metrics on the admin port.
-          annotations: { 'prometheus.io/scrape': 'true', 'prometheus.io/port': '3903' },
-        },
-        spec: {
-          containers: [$.garage_container],
-          volumes: [{ name: 'config', configMap: { name: name } }],
-        },
-      },
-      volumeClaimTemplates: [claim('meta', cfg.metaSize), claim('data', cfg.dataSize)],
-    },
-  },
+  garageStatefulSet:
+    local s = k.apps.v1.statefulSet;
+    local pvc = k.core.v1.persistentVolumeClaim;
+    local claim(volume, size) =
+      pvc.metadata.withName(volume)
+      + pvc.spec.withAccessModes(['ReadWriteOnce'])
+      + pvc.spec.resources.withRequests({ storage: size })
+      + (if cfg.storageClassName != null then pvc.spec.withStorageClassName(cfg.storageClassName) else {});
+    s.new(name, 1, [$.garage_container], [claim('meta', cfg.metaSize), claim('data', cfg.dataSize)])
+    + meta(s)
+    + s.spec.withServiceName(name)
+    // new() would add a `name` label; the selector is immutable and must stay as it was.
+    + s.spec.selector.withMatchLabels(selector)
+    + s.spec.template.metadata.withLabels(selector)
+    // Garage serves Prometheus metrics on the admin port.
+    + s.spec.template.metadata.withAnnotations({ 'prometheus.io/scrape': 'true', 'prometheus.io/port': '3903' })
+    + s.spec.template.spec.withVolumes([{ name: 'config', configMap: { name: name } }]),
 }

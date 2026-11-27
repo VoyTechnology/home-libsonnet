@@ -1,3 +1,5 @@
+local k = import 'k.libsonnet';
+
 // One-off setup through the admin API, safe to repeat: assigns the node its layout, imports the S3 key from
 // a Secret (Garage generates keys itself otherwise, which a GitOps setup cannot read back) and creates the buckets.
 {
@@ -47,19 +49,12 @@
   },
 
   // A Job's template is immutable: Flux recreates it (kustomize.toolkit.fluxcd.io/force) when the image or script change.
-  garageBootstrapJob: {
-    apiVersion: 'batch/v1',
-    kind: 'Job',
-    metadata: {
-      name: name + '-bootstrap',
-      namespace: cfg.namespace,
-      annotations: { 'kustomize.toolkit.fluxcd.io/force': 'enabled' },
-    },
-    spec: {
-      backoffLimit: 20,
-      template: {
-        spec: { restartPolicy: 'OnFailure', containers: [$.garage_bootstrap_container] },
-      },
-    },
-  },
+  garageBootstrapJob:
+    local job = k.batch.v1.job;
+    job.new(name + '-bootstrap')
+    + job.metadata.withNamespace(cfg.namespace)
+    + job.metadata.withAnnotations({ 'kustomize.toolkit.fluxcd.io/force': 'enabled' })
+    + job.spec.withBackoffLimit(20)
+    + job.spec.template.spec.withRestartPolicy('OnFailure')
+    + job.spec.template.spec.withContainers([$.garage_bootstrap_container]),
 }
