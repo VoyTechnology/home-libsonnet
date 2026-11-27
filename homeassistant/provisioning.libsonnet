@@ -16,6 +16,7 @@
 //     dashboards: !include mixins/dashboards/registry.yaml
 //
 // Contents update in place; reload the domain (or restart HA) to apply.
+local k = import 'k.libsonnet';
 local yaml(v) = std.manifestYamlDoc(v, quote_keys=false);
 local asList(v) = if std.isArray(v) then v else [v];
 
@@ -28,12 +29,9 @@ local dashboardID(name) =
 
 local byteSize(s) = std.length(std.encodeUTF8(s));
 
-local configMap(name, data) = {
-  apiVersion: 'v1',
-  kind: 'ConfigMap',
-  metadata: { name: name, labels: { 'app.kubernetes.io/name': 'homeassistant' } },
-  data: data,
-};
+local configMap(name, data) =
+  k.core.v1.configMap.new(name, data)
+  + k.core.v1.configMap.metadata.withLabels({ 'app.kubernetes.io/name': 'homeassistant' });
 
 {
   local dashboards = $.homeassistantDashboards,
@@ -115,13 +113,13 @@ local configMap(name, data) = {
       for f in std.objectFields(files[k])
     ]
     + (if $._config.configuration == null then [] else [
-      { key: 'configuration.yaml', path: 'configuration.yaml', content: $.haConfiguration },
-    ]),
+         { key: 'configuration.yaml', path: 'configuration.yaml', content: $.haConfiguration },
+       ]),
 
   // First-fit decreasing: biggest files first, each into the first shard with room.
   local limit = $._config.mixinShardBytes,
   local sized = [
-    e + { size: byteSize(e.key) + byteSize(e.content) }
+    e { size: byteSize(e.key) + byteSize(e.content) }
     for e in entries
   ],
   local shards = std.foldl(
@@ -157,6 +155,6 @@ local configMap(name, data) = {
   haProvisioningMounts:: if std.length(shards) == 0 then [] else [
     { name: 'mixins', mountPath: $._config.mixinPath, readOnly: true },
   ] + (if $._config.configuration == null then [] else [
-    { name: 'mixins', mountPath: '/config/configuration.yaml', subPath: 'configuration.yaml', readOnly: true },
-  ]),
+         { name: 'mixins', mountPath: '/config/configuration.yaml', subPath: 'configuration.yaml', readOnly: true },
+       ]),
 }
